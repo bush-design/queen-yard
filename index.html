@@ -1603,7 +1603,7 @@ function saveSupa() {
   toast('Connecting...');
   syncFromSupa().then(ok => {
     if (ok) { toast('Connected and synced'); render(); }
-    else toast('Could not connect — check your URL and key');
+    // error toast already shown inside syncFromSupa
   });
 }
 function clrSupa() { DB.supaUrl=''; DB.supaKey=''; SUPA=null; localStorage.removeItem('qct_cfg'); toast('Disconnected'); render(); }
@@ -1635,38 +1635,71 @@ let SUPA = null;
 async function initSupa() {
   if (!DB.supaUrl || !DB.supaKey) return false;
   if (SUPA) return true;
-  try {
-    if (!window.supabase) {
-      await new Promise((res,rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
-        s.onload = res; s.onerror = rej;
-        document.head.appendChild(s);
-      });
+  // Try multiple CDNs in sequence
+  const cdns = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+    'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+  ];
+  if (!window.supabase) {
+    let loaded = false;
+    for (const src of cdns) {
+      try {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.onload = () => { loaded = true; res(); };
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+        if (window.supabase) break;
+      } catch(e) { console.warn('CDN failed:', src, e); }
     }
+    if (!window.supabase) {
+      toast('Could not load Supabase library — check your internet connection');
+      return false;
+    }
+  }
+  try {
     SUPA = window.supabase.createClient(DB.supaUrl, DB.supaKey);
     return true;
-  } catch(e) { console.error('Supabase init failed', e); return false; }
+  } catch(e) {
+    console.error('Supabase createClient failed', e);
+    toast('Supabase error: ' + e.message);
+    return false;
+  }
 }
 
 async function syncFromSupa() {
   if (!await initSupa()) return false;
   try {
-    const [{ data: hives, error: he }, { data: grafts, error: ge }] = await Promise.all([
+    const [hivesRes, graftsRes] = await Promise.all([
       SUPA.from('qct_hives').select('*'),
       SUPA.from('qct_grafts').select('*')
     ]);
-    if (he || ge) throw he || ge;
-    DB.hives  = hives.map(h => ({...h, log: h.log||[]}));
-    DB.grafts = grafts.map(g => ({
-      ...g, date: g.date,
-      movements: g.movements||[], finisher_records: g.finisher_records||[]
+    if (hivesRes.error) {
+      const msg = hivesRes.error.message || JSON.stringify(hivesRes.error);
+      toast('Supabase error: ' + msg);
+      console.error('hives error:', hivesRes.error);
+      document.getElementById('db-dot').className = 'db-dot err';
+      return false;
+    }
+    if (graftsRes.error) {
+      const msg = graftsRes.error.message || JSON.stringify(graftsRes.error);
+      toast('Supabase error: ' + msg);
+      console.error('grafts error:', graftsRes.error);
+      document.getElementById('db-dot').className = 'db-dot err';
+      return false;
+    }
+    DB.hives  = (hivesRes.data||[]).map(h => ({...h, log: h.log||[]}));
+    DB.grafts = (graftsRes.data||[]).map(g => ({
+      ...g, movements: g.movements||[], finisher_records: g.finisher_records||[]
     }));
-    save(); // cache locally too
+    _localSave();
     document.getElementById('db-dot').className = 'db-dot ok';
     return true;
   } catch(e) {
     console.error('Sync failed', e);
+    toast('Sync failed: ' + (e.message||e));
     document.getElementById('db-dot').className = 'db-dot err';
     return false;
   }
