@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Queen Cell Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root {
   --amber:#D97706; --honey:#F59E0B; --gold:#FCD34D; --wax:#FEF3C7; --wax2:#FDE68A;
@@ -1635,29 +1636,9 @@ let SUPA = null;
 async function initSupa() {
   if (!DB.supaUrl || !DB.supaKey) return false;
   if (SUPA) return true;
-  // Try multiple CDNs in sequence
-  const cdns = [
-    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
-    'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
-  ];
   if (!window.supabase) {
-    let loaded = false;
-    for (const src of cdns) {
-      try {
-        await new Promise((res, rej) => {
-          const s = document.createElement('script');
-          s.src = src;
-          s.onload = () => { loaded = true; res(); };
-          s.onerror = rej;
-          document.head.appendChild(s);
-        });
-        if (window.supabase) break;
-      } catch(e) { console.warn('CDN failed:', src, e); }
-    }
-    if (!window.supabase) {
-      toast('Could not load Supabase library — check your internet connection');
-      return false;
-    }
+    toast('Supabase library not loaded — check your connection and reload');
+    return false;
   }
   try {
     SUPA = window.supabase.createClient(DB.supaUrl, DB.supaKey);
