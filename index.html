@@ -299,6 +299,7 @@ textarea { resize:vertical; min-height:60px; }
     <button class="bbt active" onclick="go('dash')"><i class="bi">H</i>Home</button>
     <button class="bbt" onclick="go('graft')"><i class="bi">+</i>Graft</button>
     <button class="bbt" onclick="go('hives')"><i class="bi">B</i>Hives</button>
+    <button class="bbt" onclick="go('calendar')"><i class="bi">C</i>Cal</button>
     <button class="bbt" onclick="go('stats')"><i class="bi">%</i>Stats</button>
     <button class="bbt" onclick="go('settings')"><i class="bi">S</i>More</button>
   </div>
@@ -440,9 +441,10 @@ function load() {
 // ═══════════════════════════════════════════════════════
 function go(p) {
   page = p;
-  const pages = ['dash','graft','hives','stats','calendar','settings'];
+  const pages = ['dash','graft','hives','calendar','stats','settings'];
   document.querySelectorAll('nav button').forEach((b,i) => b.classList.toggle('active', pages[i]===p));
-  document.querySelectorAll('.bbt').forEach((b,i) => b.classList.toggle('active', pages[i]===p));
+  const bbtPages = ['dash','graft','hives','calendar','stats','settings'];
+  document.querySelectorAll('.bbt').forEach((b,i) => b.classList.toggle('active', bbtPages[i]===p));
   render();
 }
 
@@ -459,26 +461,61 @@ function render() {
 // ═══════════════════════════════════════════════════════
 // HELPERS: graft computations
 // ═══════════════════════════════════════════════════════
-function getFinisherRecords(g) {
-  // Returns map of finisher_id -> { cells_received, capped, emerged, mated, check_dates }
-  const recs = {};
-  (g.finisher_records||[]).forEach(r => { recs[r.finisher_id] = {...r}; });
-  return recs;
-}
-
-function totalCellsInFinishers(g) {
-  return (g.finisher_records||[]).reduce((a,r) => a + (r.cells_received||0), 0);
-}
+/*
+  NEW DATA MODEL:
+  graft: {
+    id, date, protocol, breeder_id,
+    grafted: total cells grafted,
+    starter_allocations: [{
+      starter_id,
+      cells_in: number grafted into this starter,
+      cells_out: total cells this starter sent to finishers (sum of distributions)
+    }],
+    finisher_records: [{
+      finisher_id,
+      cells_received: total cells in (from all starters),
+      sources: [{ starter_id, count }],  // which starter sent how many
+      capped, emerged, mated,
+      check_dates: {}
+    }],
+    movements: [...],
+    notes
+  }
+*/
 
 function totalEmerged(g) {
   return (g.finisher_records||[]).reduce((a,r) => a + (r.emerged||0), 0);
 }
-
 function totalMated(g) {
   return (g.finisher_records||[]).reduce((a,r) => a + (r.mated||0), 0);
 }
+function totalCellsInFinishers(g) {
+  return (g.finisher_records||[]).reduce((a,r) => a + (r.cells_received||0), 0);
+}
+function starterCellsOut(g, starter_id) {
+  // Sum of cells this starter sent to all finishers
+  return (g.finisher_records||[]).reduce((a,r) => {
+    const src = (r.sources||[]).find(s => s.starter_id === starter_id);
+    return a + (src ? src.count : 0);
+  }, 0);
+}
+function starterCellsIn(g, starter_id) {
+  const sa = (g.starter_allocations||[]).find(s => s.starter_id === starter_id);
+  return sa ? (sa.cells_in||0) : 0;
+}
 
-function graftPct(g) { return pct(totalEmerged(g), g.grafted); }
+function pct(num, denom) {
+  if (!denom || denom === 0) return null;
+  return Math.round(num / denom * 100);
+}
+function pctBar(p) {
+  if (p === null) return '';
+  const cls = p >= 70 ? 'good' : p >= 40 ? 'ok' : 'low';
+  return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+    <div class="pct-bar-wrap" style="flex:1"><div class="pct-bar ${cls}" style="width:${p}%"></div></div>
+    <span style="font-size:11px;font-weight:700;color:var(--brown2);min-width:32px">${p}%</span>
+  </div>`;
+}
 
 function stagesFor(g) {
   const d = dayjs(g.date);
@@ -489,11 +526,11 @@ function stagesFor(g) {
     ];
   }
   return [
-    { key:'place',   label:'Grafted',        day:0,  date:g.date },
-    { key:'started', label:'Into finisher',  day:1,  date:d.add(1,'day').format('YYYY-MM-DD') },
-    { key:'capped',  label:'Capped',         day:5,  date:d.add(5,'day').format('YYYY-MM-DD') },
-    { key:'emerged', label:'Out',            day:10, date:d.add(10,'day').format('YYYY-MM-DD') },
-    { key:'mated',   label:'Mated',          day:30, date:d.add(30,'day').format('YYYY-MM-DD') },
+    { key:'place',   label:'Grafted',       day:0,  date:g.date },
+    { key:'started', label:'Into finisher', day:1,  date:d.add(1,'day').format('YYYY-MM-DD') },
+    { key:'capped',  label:'Capped',        day:5,  date:d.add(5,'day').format('YYYY-MM-DD') },
+    { key:'emerged', label:'Out',           day:10, date:d.add(10,'day').format('YYYY-MM-DD') },
+    { key:'mated',   label:'Mated',         day:30, date:d.add(30,'day').format('YYYY-MM-DD') },
   ];
 }
 
@@ -501,7 +538,6 @@ function nextDue(g) {
   const stages = stagesFor(g);
   for (const st of stages) {
     if (st.key === 'place') continue;
-    // Check if any finisher record has this stage filled
     const done = (g.finisher_records||[]).some(r => r[st.key] != null);
     if (!done) return st;
   }
@@ -518,7 +554,6 @@ function rDash() {
   const totalMt = G.reduce((a,g) => a + totalMated(g), 0);
   const seasonPct = pct(totalEm, totalGrafted);
 
-  // Due actions
   const due = [];
   G.forEach(g => {
     const nd = nextDue(g);
@@ -532,12 +567,13 @@ function rDash() {
     <div class="due-banner">
       <div class="due-banner-hd">Action needed</div>
       ${due.map(({g,nd,diff}) => {
-        const B = hById(g.breeder_id), S = hById(g.starter_id);
+        const B = hById(g.breeder_id);
+        const starters = (g.starter_allocations||[]).map(sa => hById(sa.starter_id)?.name||'?').join(', ');
         const cls = diff < 0 ? 'chip-due' : diff === 0 ? 'chip-A' : 'chip-warn';
         const lbl = diff < 0 ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'Today' : `In ${diff}d`;
         return `<div class="due-item">
           <div class="due-item-info">
-            <strong>${fmtF(g.date)} — ${B?B.name:'?'} / ${S?S.name:'?'}</strong>
+            <strong>${fmtF(g.date)} — ${B?B.name:'?'}</strong>
             <span>${nd.label} · ${fmt(nd.date)}</span>
           </div>
           <span class="chip ${cls}">${lbl}</span>
@@ -593,28 +629,24 @@ function rApiarySummary() {
   return rows.join('');
 }
 
+// ═══════════════════════════════════════════════════════
+// GRAFT CARD — journey style
+// ═══════════════════════════════════════════════════════
 function rGraftCard(g) {
-  const B = hById(g.breeder_id), S = hById(g.starter_id);
+  const B = hById(g.breeder_id);
   const frecs = g.finisher_records || [];
-  const d = dayjs(g.date);
+  const sAllocs = g.starter_allocations || [];
   const isA = g.protocol === 'autumn';
-
-  const cappedDate  = isA ? null : d.add(5,'day').format('YYYY-MM-DD');
-  const outDate     = isA ? d.add(2,'day').format('YYYY-MM-DD') : d.add(10,'day').format('YYYY-MM-DD');
-  const starterDate = isA ? null : d.add(1,'day').format('YYYY-MM-DD');
 
   const tEm  = totalEmerged(g);
   const tGr  = g.grafted || 0;
-  const tIn  = frecs.reduce((a,r) => a + (r.cells_received||0), 0);
   const gPct = pct(tEm, tGr);
 
-  // Stage dots
-  const stages = stagesFor(g).slice(1); // skip 'place'
+  // Timeline dots
+  const stages = stagesFor(g).slice(1);
   const stageDots = stages.map(st => {
     const done = frecs.some(r => r[st.key] != null);
-    const due  = isToday(st.date);
-    const over = isPast(st.date) && !done;
-    const cls  = done ? 'past' : due ? 'now' : '';
+    const cls  = isPast(st.date) && done ? 'past' : isToday(st.date) ? 'now' : '';
     return `<div class="tl-node">
       <div class="tl-dot ${cls}">${done?'v':'o'}</div>
       <div class="tl-lbl">${st.label}</div>
@@ -622,38 +654,39 @@ function rGraftCard(g) {
     </div>`;
   }).join('');
 
-  // Journey flow: B -> S -> finishers
-  const finCols = frecs.map(fr => {
-    const F = hById(fr.finisher_id);
-    const fp = pct(fr.emerged||0, fr.cells_received||0);
-    const fpCol = fp===null?'var(--brown3)':fp>=70?'var(--green)':fp>=40?'var(--amber)':'var(--red)';
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:64px">
-      <div style="background:var(--cF-bg);border:1px solid var(--cF);border-radius:var(--rs);padding:6px 8px;text-align:center;width:100%">
-        <div style="font-size:11px;font-weight:700;color:var(--cF)">${F?F.name:'?'}</div>
-        <div style="font-size:10px;color:var(--brown3);margin-top:1px">${fr.cells_received||0} in</div>
-        ${fr.capped!=null?`<div style="font-size:10px;color:var(--amber)">${fr.capped} capped</div>`:''}
-        <div style="font-size:13px;font-weight:800;color:${fpCol};margin-top:2px">${fr.emerged!=null?fr.emerged:'—'}</div>
-        <div style="font-size:9px;color:var(--brown3)">emerged</div>
-        ${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fpCol}">${fp}%</div>`:''}
-      </div>
+  // Starter boxes
+  const starterBoxes = sAllocs.map(sa => {
+    const S = hById(sa.starter_id);
+    const sent = starterCellsOut(g, sa.starter_id);
+    const sp = pct(sent, sa.cells_in||0);
+    return `<div style="background:var(--cS-bg);border:1px solid var(--cS);border-radius:var(--rs);padding:6px 10px;text-align:center;min-width:64px">
+      <div style="font-size:11px;font-weight:700;color:var(--cS)">${S?S.name:'?'}</div>
+      <div style="font-size:10px;color:var(--brown3)">${sa.cells_in||0} in</div>
+      ${sent>0?`<div style="font-size:10px;color:var(--cF);font-weight:700">${sent} sent</div>`:''}
+      ${sp!==null?`<div style="font-size:10px;font-weight:700;color:${sp>=70?'var(--green)':sp>=40?'var(--amber)':'var(--red)'}">${sp}%</div>`:''}
     </div>`;
   }).join('');
 
-  // Arrow between B and S
-  const chainHtml = `
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-      <div style="background:var(--cB-bg);border:1px solid var(--cB);border-radius:var(--rs);padding:6px 10px;text-align:center">
-        <div style="font-size:11px;font-weight:700;color:var(--cB)">${B?B.name:'?'}</div>
-        <div style="font-size:10px;color:var(--brown3)">${tGr} grafted</div>
-      </div>
-      ${!isA ? `<div style="color:var(--brown3);font-size:14px">→</div>
-      <div style="background:var(--cS-bg);border:1px solid var(--cS);border-radius:var(--rs);padding:6px 10px;text-align:center">
-        <div style="font-size:11px;font-weight:700;color:var(--cS)">${S?S.name:'?'}</div>
-        <div style="font-size:10px;color:var(--brown3)">${tIn} started</div>
-      </div>` : ''}
-      ${frecs.length ? `<div style="color:var(--brown3);font-size:14px">→</div>` : ''}
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${finCols}</div>
+  // Finisher boxes
+  const finBoxes = frecs.map(fr => {
+    const F = hById(fr.finisher_id);
+    const fp = pct(fr.emerged||0, fr.cells_received||0);
+    const fpCol = fp===null?'var(--brown3)':fp>=70?'var(--green)':fp>=40?'var(--amber)':'var(--red)';
+    // Show sources breakdown
+    const srcBreakdown = (fr.sources||[]).map(s => {
+      const S = hById(s.starter_id);
+      return `<span style="font-size:9px;color:var(--brown3)">${S?S.name:'?'}:${s.count}</span>`;
+    }).join(' + ');
+    return `<div style="background:var(--cF-bg);border:1px solid var(--cF);border-radius:var(--rs);padding:6px 8px;text-align:center;min-width:64px">
+      <div style="font-size:11px;font-weight:700;color:var(--cF)">${F?F.name:'?'}</div>
+      ${srcBreakdown?`<div style="margin-top:1px">${srcBreakdown}</div>`:''}
+      <div style="font-size:10px;color:var(--brown3);margin-top:1px">${fr.cells_received||0} in</div>
+      ${fr.capped!=null?`<div style="font-size:10px;color:var(--amber)">${fr.capped} capped</div>`:''}
+      <div style="font-size:13px;font-weight:800;color:${fpCol};margin-top:2px">${fr.emerged!=null?fr.emerged:'—'}</div>
+      <div style="font-size:9px;color:var(--brown3)">emerged</div>
+      ${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fpCol}">${fp}%</div>`:''}
     </div>`;
+  }).join('');
 
   return `<div class="graft-card">
     <div class="graft-hd" onclick="toggleGraft('${g.id}')">
@@ -665,18 +698,28 @@ function rGraftCard(g) {
       <span style="color:var(--brown3);margin-left:auto">›</span>
     </div>
     <div class="graft-body" id="gb-${g.id}">
-
       <div class="tl" style="margin-bottom:10px">${stageDots}</div>
 
-      ${chainHtml}
+      <!-- Journey flow -->
+      <div style="display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <!-- Breeder -->
+        <div style="background:var(--cB-bg);border:1px solid var(--cB);border-radius:var(--rs);padding:6px 10px;text-align:center">
+          <div style="font-size:11px;font-weight:700;color:var(--cB)">${B?B.name:'?'}</div>
+          <div style="font-size:10px;color:var(--brown3)">${tGr} grafted</div>
+        </div>
+        ${sAllocs.length?`<div style="color:var(--brown3);font-size:18px;padding-top:8px">→</div>`:''}
+        <!-- Starters -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${starterBoxes}</div>
+        ${frecs.length?`<div style="color:var(--brown3);font-size:18px;padding-top:8px">→</div>`:''}
+        <!-- Finishers -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${finBoxes}</div>
+      </div>
 
-      ${gPct!==null ? `<div style="margin-bottom:10px">
+      ${gPct!==null?`<div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;margin-bottom:3px">
           <span class="t-xs">Emerged / grafted</span>
           <span class="t-xs" style="font-weight:700">${tEm} / ${tGr}</span>
-        </div>
-        ${pctBar(gPct)}
-      </div>` : ''}
+        </div>${pctBar(gPct)}</div>`:''}
 
       <div class="divider"></div>
       <div class="btn-row">
@@ -688,19 +731,23 @@ function rGraftCard(g) {
     </div>
   </div>`;
 }
+
 function toggleGraft(id) {
   const el = document.getElementById('gb-'+id);
   if (el) el.classList.toggle('open');
 }
 
 // ═══════════════════════════════════════════════════════
-// NEW GRAFT FORM
+// NEW GRAFT FORM — Day 0: breeder + starters + cells grafted
 // ═══════════════════════════════════════════════════════
 function initGraftForm() {
-  graftForm = { id:null, date:today(), protocol:'standard',
+  graftForm = {
+    id: null, date: today(), protocol: 'standard',
     breeder_id: hByType('breeder')[0]?.id || '',
-    starter_id: hByType('starter')[0]?.id || '',
-    grafted: 45, notes: '' };
+    grafted: 45,
+    starter_allocations: [], // [{ starter_id, cells_in }]
+    notes: ''
+  };
 }
 
 function rGraftForm() {
@@ -711,10 +758,10 @@ function rGraftForm() {
   const finishers = hByType('finisher');
   const isA = f.protocol === 'autumn';
 
-  if (!breeders.length || (!isA && !starters.length) || !finishers.length) {
+  if (!breeders.length || !finishers.length) {
     return `<div class="card">
       <div class="card-hd">Set up hives first</div>
-      <p class="t-sm">You need at least one breeder, ${!isA?'one starter, and ':''}one finisher hive.</p>
+      <p class="t-sm">You need at least one breeder and one finisher hive.</p>
       <div class="mt12"><button class="btn btn-p" onclick="go('hives')">Set up hives</button></div>
     </div>`;
   }
@@ -736,25 +783,33 @@ function rGraftForm() {
     </div>`;
   }).join('');
 
-  const starterField = isA
-    ? `<div class="field">
-        <label>Finisher hive (acts as starter)</label>
-        <select onchange="graftForm.starter_id=this.value">
-          <option value="">Select...</option>
-          ${finishers.map(h=>`<option value="${h.id}" ${f.starter_id===h.id?'selected':''}>${h.name}</option>`).join('')}
-        </select>
-      </div>`
-    : `<div class="field">
-        <label>Starter hive</label>
-        <select onchange="graftForm.starter_id=this.value">
-          <option value="">Select...</option>
-          ${starters.map(h=>`<option value="${h.id}" ${f.starter_id===h.id?'selected':''}>${h.name}</option>`).join('')}
-        </select>
-      </div>`;
+  // Starter allocation rows
+  const saRows = (f.starter_allocations||[]).map((sa, i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
+        onchange="graftForm.starter_allocations[${i}].starter_id=this.value">
+        <option value="">Select starter...</option>
+        ${starters.map(s=>`<option value="${s.id}" ${sa.starter_id===s.id?'selected':''}>${s.name}</option>`).join('')}
+      </select>
+      <input type="number" min="0" placeholder="Cells" value="${sa.cells_in||''}"
+        style="width:80px;padding:10px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
+        oninput="graftForm.starter_allocations[${i}].cells_in=+this.value">
+      <button class="btn btn-d btn-xs" onclick="removeSA(${i})">×</button>
+    </div>`).join('');
+
+  // For autumn — finisher acts as starter
+  const autumnRow = isA ? `
+    <div class="field mt12">
+      <label>Finisher hive (acts as starter + finisher)</label>
+      <select onchange="graftForm.autumn_finisher_id=this.value">
+        <option value="">Select...</option>
+        ${finishers.map(h=>`<option value="${h.id}" ${f.autumn_finisher_id===h.id?'selected':''}>${h.name}</option>`).join('')}
+      </select>
+    </div>` : '';
 
   return `<div class="card">
     <div class="card-hd">${f.id ? 'Edit Graft' : 'New Graft — Day 0'}
-      ${f.id ? `<button class="btn btn-g btn-xs" onclick="cancelGraft()">Cancel</button>` : ''}
+      ${f.id?`<button class="btn btn-g btn-xs" onclick="cancelGraft()">Cancel</button>`:''}
     </div>
 
     <div class="proto-row">
@@ -774,22 +829,26 @@ function rGraftForm() {
         <input type="date" value="${f.date}" oninput="graftForm.date=this.value;renderG()">
       </div>
       <div class="field">
-        <label>Cells Grafted</label>
-        <input type="number" min="0" placeholder="e.g. 45" value="${f.grafted||''}"
+        <label>Total Cells Grafted</label>
+        <input type="number" min="0" placeholder="e.g. 135" value="${f.grafted||''}"
           oninput="graftForm.grafted=+this.value">
       </div>
     </div>
 
-    <div class="r2 mt12">
-      <div class="field">
-        <label>Breeder</label>
-        <select onchange="graftForm.breeder_id=this.value">
-          <option value="">Select...</option>
-          ${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}
-        </select>
-      </div>
-      ${starterField}
+    <div class="field mt12">
+      <label>Breeder</label>
+      <select onchange="graftForm.breeder_id=this.value">
+        <option value="">Select breeder...</option>
+        ${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}
+      </select>
     </div>
+
+    ${!isA ? `
+    <div class="mt12">
+      <div class="sec-lbl">Starters — how many cells into each</div>
+      <div id="sa-rows">${saRows}</div>
+      <button class="btn btn-add btn-sm" onclick="addSA()" style="width:100%">+ Add starter</button>
+    </div>` : autumnRow}
 
     <div class="field mt12">
       <label>Notes</label>
@@ -797,28 +856,52 @@ function rGraftForm() {
     </div>
 
     <div class="btn-row mt12">
-      <button class="btn btn-p" onclick="saveGraft()">Save — come back tomorrow to assign finishers</button>
+      <button class="btn btn-p" onclick="saveGraft()">Save — assign finishers tomorrow</button>
       <button class="btn btn-g" onclick="cancelGraft()">Cancel</button>
     </div>
   </div>`;
 }
+
 function renderG() { document.getElementById('app').innerHTML = rGraftForm(); }
+function addSA() {
+  if (!graftForm.starter_allocations) graftForm.starter_allocations = [];
+  graftForm.starter_allocations.push({ starter_id:'', cells_in:0 });
+  renderG();
+}
+function removeSA(i) {
+  graftForm.starter_allocations.splice(i,1);
+  renderG();
+}
 
 function saveGraft() {
   const f = graftForm;
   if (!f.breeder_id) { toast('Select a breeder'); return; }
-  if (!f.starter_id) { toast('Select a starter/finisher hive'); return; }
+  if (f.protocol !== 'autumn' && (!f.starter_allocations||!f.starter_allocations.length)) {
+    toast('Add at least one starter'); return;
+  }
+  if (f.protocol !== 'autumn' && f.starter_allocations.some(sa=>!sa.starter_id)) {
+    toast('Select a starter for each row'); return;
+  }
+  const existing = f.id ? gById(f.id) : null;
   const g = {
     id: f.id || uid(),
     date: f.date, protocol: f.protocol,
-    breeder_id: f.breeder_id, starter_id: f.starter_id,
-    grafted: f.grafted, notes: f.notes,
-    movements: f.id ? (gById(f.id)?.movements||[]) : [],
-    finisher_records: f.id ? (gById(f.id)?.finisher_records||[]) : []
+    breeder_id: f.breeder_id,
+    grafted: f.grafted||0,
+    starter_allocations: f.protocol==='autumn'
+      ? [{ starter_id: f.autumn_finisher_id||'', cells_in: f.grafted||0 }]
+      : (f.starter_allocations||[]).map(sa=>({...sa})),
+    notes: f.notes,
+    movements:        existing?.movements        || [],
+    finisher_records: existing?.finisher_records || []
   };
-  // For autumn, auto-create a finisher record for the starter hive
-  if (f.protocol === 'autumn' && !g.finisher_records.find(r=>r.finisher_id===f.starter_id)) {
-    g.finisher_records.push({ finisher_id:f.starter_id, cells_received:f.grafted, capped:null, emerged:null, mated:null, check_dates:{} });
+  // Autumn: auto-create finisher record
+  if (f.protocol==='autumn' && f.autumn_finisher_id && !g.finisher_records.length) {
+    g.finisher_records.push({
+      finisher_id: f.autumn_finisher_id, cells_received: f.grafted||0,
+      sources: [{ starter_id: f.autumn_finisher_id, count: f.grafted||0 }],
+      capped:null, emerged:null, mated:null, check_dates:{}
+    });
   }
   const idx = DB.grafts.findIndex(x=>x.id===g.id);
   if (idx>=0) DB.grafts[idx]=g; else DB.grafts.unshift(g);
@@ -827,8 +910,12 @@ function saveGraft() {
 
 function editGraft(id) {
   const g = gById(id); if (!g) return;
-  graftForm = { id:g.id, date:g.date, protocol:g.protocol,
-    breeder_id:g.breeder_id, starter_id:g.starter_id, grafted:g.grafted, notes:g.notes };
+  graftForm = {
+    id: g.id, date: g.date, protocol: g.protocol,
+    breeder_id: g.breeder_id, grafted: g.grafted, notes: g.notes,
+    starter_allocations: (g.starter_allocations||[]).map(sa=>({...sa})),
+    autumn_finisher_id: g.protocol==='autumn' ? (g.starter_allocations||[])[0]?.starter_id : ''
+  };
   go('graft');
 }
 
@@ -836,67 +923,70 @@ function cancelGraft() { graftForm=null; go('dash'); }
 function deleteGraft(id) {
   if (!confirm('Delete this graft batch?')) return;
   DB.grafts = DB.grafts.filter(g=>g.id!==id);
-  saveLocal();
-  deleteFromSupa('qct_grafts', id);
+  saveLocal(); deleteFromSupa('qct_grafts', id);
   toast('Deleted'); render();
 }
-
 function openGraft(id) { openRecordPanel(id); }
 
 // ═══════════════════════════════════════════════════════
-// RECORD PAGE (cell movements & counts)
+// RECORD PANEL — Day 1+: assign cells from starters to finishers
 // ═══════════════════════════════════════════════════════
-// Open a full-screen recording panel for a graft
 function openRecordPanel(id) {
+  panelGraftId = id;
+  day1Rows = [];
   const g = gById(id); if (!g) return;
-  const B = hById(g.breeder_id), S = hById(g.starter_id);
+  const B = hById(g.breeder_id);
   const finishers = hByType('finisher');
   const frecs = g.finisher_records||[];
+  const sAllocs = g.starter_allocations||[];
   const isA = g.protocol==='autumn';
-  const tEm2 = totalEmerged(g), tMt = totalMated(g);
-  const tIn  = frecs.reduce((a,r)=>a+(r.cells_received||0),0);
-  const gPct = pct(tEm2, g.grafted);
-  const layPct = pct(tMt, g.grafted);
+  const tEm = totalEmerged(g), tMt = totalMated(g);
+  const tIn  = totalCellsInFinishers(g);
+  const gPct = pct(tEm, g.grafted), layPct = pct(tMt, g.grafted);
 
   document.getElementById('panel-title').innerHTML =
-    `${fmtF(g.date)} — ${B?B.name:'?'} / ${S?S.name:'?'}`;
+    `${fmtF(g.date)} — ${B?B.name:'?'}`;
   document.querySelector('.panel .btn-d').style.display = 'none';
 
-  // ── Day 1 section: only shown if no finisher records yet (standard) or always (autumn)
-  const day1Section = (!isA && frecs.length === 0) ? `
+  // Starter summary
+  const starterSummary = sAllocs.map(sa => {
+    const S = hById(sa.starter_id);
+    const sent = starterCellsOut(g, sa.starter_id);
+    const sp = pct(sent, sa.cells_in||0);
+    const spCol = sp===null?'var(--brown3)':sp>=70?'var(--green)':sp>=40?'var(--amber)':'var(--red)';
+    return `<div style="background:var(--cS-bg);border:1px solid var(--cS);border-radius:var(--rs);padding:8px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px">
+      <span class="chip chip-S">${S?S.name:'?'}</span>
+      <span class="t-xs">${sa.cells_in||0} in</span>
+      <span class="t-xs">${sent} sent to finishers</span>
+      ${sp!==null?`<span class="chip ${sp>=70?'chip-ok':sp>=40?'chip-warn':'chip-due'}" style="margin-left:auto">${sp}%</span>`:''}
+    </div>`;
+  }).join('');
+
+  // Day 1 section: shown when no finisher records yet
+  const day1Section = (!isA && frecs.length===0) ? `
     <div class="card" style="border:2px solid var(--amber)">
       <div class="card-hd" style="color:var(--amber)">Day 1 — Assign cells to finisher</div>
-      <p class="t-sm" style="margin-bottom:12px">Count accepted cells and distribute to finisher hive(s). You can add more finishers below at any time.</p>
-      <div class="r2">
-        <div class="field"><label>Cells accepted</label>
-          <input type="number" id="d1-count" min="0" placeholder="e.g. 38"
-            style="font-size:20px;font-weight:800;text-align:center">
-        </div>
-        <div class="field"><label>Date</label>
-          <input type="date" id="d1-date" value="${today()}">
-        </div>
-      </div>
-      <div class="field mt12"><label>Finisher hive</label>
-        <select id="d1-fin">
-          <option value="">Select finisher...</option>
-          ${finishers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}
-        </select>
-      </div>
-      <button class="btn btn-p btn-block mt12" onclick="assignDay1('${id}')">
-        Assign to finisher
-      </button>
+      <p class="t-sm" style="margin-bottom:12px">For each finisher receiving cells, enter which starters contributed and how many.</p>
+      <div id="day1-assignments"></div>
+      <button class="btn btn-add btn-sm btn-block" onclick="addDay1Row()">+ Add finisher assignment</button>
+      <button class="btn btn-p btn-block mt12" onclick="saveDay1('${id}')">Save assignments</button>
     </div>` : '';
 
-  // ── Finisher records
+  // Finisher records
   const finRecRows = frecs.map((fr,i) => {
     const F = hById(fr.finisher_id);
     const fp = pct(fr.emerged||0, fr.cells_received||0);
+    const fpCol = fp===null?'var(--brown3)':fp>=70?'var(--green)':fp>=40?'var(--amber)':'var(--red)';
+    const srcBreakdown = (fr.sources||[]).map(s=>{
+      const S=hById(s.starter_id);
+      return `${S?S.name:'?'}: ${s.count}`;
+    }).join(' + ');
     return `<div class="fin-row">
       <div class="fin-row-hd">
         <span class="chip chip-F">${F?F.name:'?'}</span>
-        <span class="t-xs">${fr.cells_received||0} cells</span>
-        ${fp!==null?`<span class="chip ${fp>=70?'chip-ok':fp>=40?'chip-warn':'chip-due'}">${fp}%</span>`:''}
-        <button class="btn btn-d btn-xs" style="margin-left:auto" onclick="removeFinRec('${id}',${i})">Remove</button>
+        <span class="t-xs">${fr.cells_received||0} cells in${srcBreakdown?` (${srcBreakdown})`:''}</span>
+        ${fp!==null?`<span class="chip ${fp>=70?'chip-ok':fp>=40?'chip-warn':'chip-due'}" style="margin-left:auto">${fp}%</span>`:''}
+        <button class="btn btn-d btn-xs" onclick="removeFinRec('${id}',${i})">×</button>
       </div>
       <div class="move-counts">
         <div class="count-box">
@@ -905,7 +995,7 @@ function openRecordPanel(id) {
             onchange="updateFinRec('${id}',${i},'cells_received',+this.value)">
         </div>
         ${!isA?`<div class="count-box">
-          <label>Capped</label>
+          <label>Capped (est)</label>
           <input type="number" min="0" value="${fr.capped??''}"
             onchange="updateFinRec('${id}',${i},'capped',this.value===''?null:+this.value)">
         </div>`:''}
@@ -921,139 +1011,204 @@ function openRecordPanel(id) {
         </div>
       </div>
       ${!isA?`<div class="t-xs mt8" style="display:flex;gap:12px;flex-wrap:wrap">
-        <label>Capped date: <input type="date" style="display:inline;width:auto;padding:3px 6px;font-size:12px"
+        <label>Capped: <input type="date" style="display:inline;width:auto;padding:3px 6px;font-size:12px"
           value="${fr.check_dates?.capped||''}" onchange="updateFinRecDate('${id}',${i},'capped',this.value)"></label>
-        <label>Emerged date: <input type="date" style="display:inline;width:auto;padding:3px 6px;font-size:12px"
+        <label>Emerged: <input type="date" style="display:inline;width:auto;padding:3px 6px;font-size:12px"
           value="${fr.check_dates?.emerged||''}" onchange="updateFinRecDate('${id}',${i},'emerged',this.value)"></label>
       </div>`:''}
     </div>`;
   }).join('');
 
-  // ── Add another finisher (shown once at least one finisher assigned)
-  const addMoreFin = frecs.length > 0 ? `
+  // Add more finishers (after initial assignment done)
+  const addMoreSection = frecs.length>0 ? `
     <div style="background:var(--wax);border-radius:var(--rs);padding:12px;margin-top:8px">
-      <div class="sec-lbl">Move or add cells to another finisher</div>
-      <div class="r2 mt8">
-        <div class="field"><label>Finisher hive</label>
-          <select id="rec-fin-sel">
-            <option value="">Select finisher...</option>
-            ${finishers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field"><label>Cell count</label>
-          <input type="number" id="rec-fin-count" min="0" placeholder="e.g. 12">
-        </div>
-      </div>
-      <div class="field mt8"><label>Date</label>
-        <input type="date" id="rec-fin-date" value="${today()}">
-      </div>
-      <button class="btn btn-p btn-sm mt8" onclick="addFinRecord('${id}')">Add finisher</button>
+      <div class="sec-lbl">Add another finisher</div>
+      <div id="extra-fin-rows"></div>
+      <button class="btn btn-add btn-sm btn-block mt8" onclick="addExtraFinRow('${id}')">+ Add finisher assignment</button>
     </div>` : '';
 
-  // ── Movement log
-  const moveLog = (g.movements||[]).length ? (g.movements||[]).slice().reverse().map(m=>`
-    <div class="move-row">
-      <div class="move-hd">
-        <span class="t-xs">${fmt(m.date)}</span>
-        <span class="chip chip-std">${m.cell_count} cells</span>
-        <span class="t-xs">${hById(m.from_hive_id)?.name||'—'} → ${hById(m.to_hive_id)?.name||'—'}</span>
-      </div>
-      ${m.note?`<p class="t-xs">${m.note}</p>`:''}
-    </div>`).join('') : `<p class="t-sm">No movements logged.</p>`;
-
   document.getElementById('panel-body').innerHTML = `
-
-    ${day1Section}
-
     <div class="card">
       <div class="card-hd">Summary</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px" id="rec-summary-grid">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
         <div class="fin-stat"><div class="fsn">${g.grafted||0}</div><div class="fsl">Grafted</div></div>
         <div class="fin-stat"><div class="fsn">${tIn}</div><div class="fsl">In finishers</div></div>
-        <div class="fin-stat"><div class="fsn">${tEm2}</div><div class="fsl">Emerged</div></div>
+        <div class="fin-stat"><div class="fsn">${tEm}</div><div class="fsl">Emerged</div></div>
       </div>
       ${gPct!==null?`<div class="sec-lbl">Emerged / grafted</div>${pctBar(gPct)}`:''}
       ${layPct!==null?`<div class="mt8 sec-lbl">Mated / grafted</div>${pctBar(layPct)}`:''}
     </div>
 
-    <div class="card">
-      <div class="card-hd">Finisher Records
-        <span class="t-xs">${g.grafted||0} grafted · ${tIn} assigned</span>
-      </div>
-      <div id="fin-rec-rows">
-        ${frecs.length ? finRecRows : `<p class="t-sm">No finishers assigned yet.</p>`}
-      </div>
-      ${addMoreFin}
-    </div>
+    ${sAllocs.length?`<div class="card"><div class="card-hd">Starters</div>${starterSummary}</div>`:''}
+
+    ${day1Section}
 
     <div class="card">
-      <div class="card-hd">Cell Movements</div>
-      ${moveLog}
-      <div style="background:var(--wax);border-radius:var(--rs);padding:12px;margin-top:8px">
-        <div class="sec-lbl">Log a cell move between hives</div>
-        <div class="r2 mt8">
-          <div class="field"><label>From</label>
-            <select id="mv-from">
-              <option value="">Select...</option>
-              ${DB.hives.map(h=>`<option value="${h.id}">${h.name}</option>`).join('')}
-            </select></div>
-          <div class="field"><label>To</label>
-            <select id="mv-to">
-              <option value="">Select...</option>
-              ${DB.hives.map(h=>`<option value="${h.id}">${h.name}</option>`).join('')}
-            </select></div>
-        </div>
-        <div class="r2 mt8">
-          <div class="field"><label>Count</label>
-            <input type="number" id="mv-count" min="0" placeholder="cells"></div>
-          <div class="field"><label>Date</label>
-            <input type="date" id="mv-date" value="${today()}"></div>
-        </div>
-        <div class="field mt8"><label>Note (optional)</label>
-          <input type="text" id="mv-note" placeholder="Reason..."></div>
-        <button class="btn btn-p btn-sm mt8" onclick="logMovement('${id}')">Log movement</button>
-      </div>
+      <div class="card-hd">Finisher Records</div>
+      ${frecs.length ? finRecRows : `<p class="t-sm">No finishers assigned yet.</p>`}
+      ${addMoreSection}
     </div>`;
 
   document.getElementById('hive-panel').classList.add('open');
 }
 
-function assignDay1(gid) {
-  const g = gById(gid); if (!g) return;
-  const count  = +document.getElementById('d1-count').value;
-  const date   = document.getElementById('d1-date').value;
-  const finId  = document.getElementById('d1-fin').value;
-  if (!count)  { toast('Enter cell count'); return; }
-  if (!finId)  { toast('Select a finisher hive'); return; }
-  if (!g.finisher_records) g.finisher_records = [];
-  g.finisher_records.push({
-    finisher_id: finId, cells_received: count,
-    capped:null, emerged:null, mated:null, check_dates:{}
-  });
-  if (!g.movements) g.movements = [];
-  g.movements.push({ id:uid(), date, from_hive_id:g.starter_id, to_hive_id:finId,
-    cell_count:count, type:'place', stage:'started', note:'' });
-  save(); toast('Assigned to finisher'); openRecordPanel(gid);
+// Day 1 assignment rows (dynamic)
+let day1Rows = [];
+function addDay1Row() {
+  day1Rows.push({ finisher_id:'', sources:[] });
+  renderDay1Rows();
 }
+
+function renderDay1Rows() {
+  const container = document.getElementById('day1-assignments');
+  if (!container) return;
+  const finishers = hByType('finisher');
+  const g = gById(panelGraftId);
+  const sAllocs = g ? (g.starter_allocations||[]) : [];
+  const starters = sAllocs.map(sa => hById(sa.starter_id)).filter(Boolean);
+
+  container.innerHTML = day1Rows.map((row,ri) => `
+    <div style="background:var(--cream);border:1px solid var(--wax2);border-radius:var(--rs);padding:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="chip chip-F">Finisher</span>
+        <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
+          onchange="day1Rows[${ri}].finisher_id=this.value">
+          <option value="">Select finisher...</option>
+          ${finishers.map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''}>${f.name}</option>`).join('')}
+        </select>
+        <button class="btn btn-d btn-xs" onclick="removeDay1Row(${ri})">×</button>
+      </div>
+      <div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>
+      ${starters.map((S,si) => {
+        const src = row.sources.find(s=>s.starter_id===S.id)||{count:''};
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="chip chip-S" style="min-width:48px">${S.name}</span>
+          <input type="number" min="0" placeholder="0" value="${src.count||''}"
+            style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
+            oninput="setDay1Source(${ri},'${S.id}',+this.value)">
+          <span class="t-xs">cells</span>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+function setDay1Source(ri, starter_id, count) {
+  const row = day1Rows[ri];
+  const existing = row.sources.find(s=>s.starter_id===starter_id);
+  if (existing) existing.count = count;
+  else row.sources.push({ starter_id, count });
+}
+
+function removeDay1Row(ri) {
+  day1Rows.splice(ri,1);
+  renderDay1Rows();
+}
+
+let panelGraftId = null;
+
+function saveDay1(gid) {
+  const g = gById(gid); if (!g) return;
+  if (day1Rows.some(r=>!r.finisher_id)) { toast('Select a finisher for each row'); return; }
+  if (!day1Rows.length) { toast('Add at least one finisher'); return; }
+
+  day1Rows.forEach(row => {
+    const totalIn = row.sources.reduce((a,s)=>a+(s.count||0),0);
+    const existing = (g.finisher_records||[]).find(r=>r.finisher_id===row.finisher_id);
+    if (existing) {
+      existing.cells_received += totalIn;
+      row.sources.forEach(src => {
+        const ex = (existing.sources||[]).find(s=>s.starter_id===src.starter_id);
+        if (ex) ex.count += src.count||0;
+        else (existing.sources=existing.sources||[]).push({...src});
+      });
+    } else {
+      if (!g.finisher_records) g.finisher_records = [];
+      g.finisher_records.push({
+        finisher_id: row.finisher_id,
+        cells_received: totalIn,
+        sources: row.sources.filter(s=>s.count>0).map(s=>({...s})),
+        capped:null, emerged:null, mated:null, check_dates:{}
+      });
+    }
+    // Update starter cells_out
+    row.sources.forEach(src => {
+      const sa = (g.starter_allocations||[]).find(s=>s.starter_id===src.starter_id);
+      if (sa) sa.cells_out = (sa.cells_out||0) + (src.count||0);
+    });
+  });
+
+  day1Rows = [];
+  save(); toast('Assignments saved'); openRecordPanel(gid);
+}
+
+function addExtraFinRow(gid) {
+  panelGraftId = gid;
+  const g = gById(gid); if (!g) return;
+  const container = document.getElementById('extra-fin-rows');
+  if (!container) return;
+  const finishers = hByType('finisher');
+  const sAllocs = g.starter_allocations||[];
+  const starters = sAllocs.map(sa=>hById(sa.starter_id)).filter(Boolean);
+  const rowId = 'efr-'+uid();
+
+  const div = document.createElement('div');
+  div.id = rowId;
+  div.style.cssText = 'background:var(--cream);border:1px solid var(--wax2);border-radius:var(--rs);padding:10px;margin-bottom:8px';
+  div.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span class="chip chip-F">Finisher</span>
+      <select id="${rowId}-fin" style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)">
+        <option value="">Select finisher...</option>
+        ${finishers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}
+      </select>
+      <button class="btn btn-d btn-xs" onclick="document.getElementById('${rowId}').remove()">×</button>
+    </div>
+    <div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>
+    ${starters.map(S=>`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="chip chip-S" style="min-width:48px">${S.name}</span>
+        <input type="number" id="${rowId}-src-${S.id}" min="0" placeholder="0"
+          style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)">
+        <span class="t-xs">cells</span>
+      </div>`).join('')}
+    <button class="btn btn-p btn-sm btn-block mt8" onclick="saveExtraFin('${gid}','${rowId}',${JSON.stringify(starters.map(s=>s.id))})">Save</button>`;
+  container.appendChild(div);
+}
+
+function saveExtraFin(gid, rowId, starterIds) {
+  const g = gById(gid); if (!g) return;
+  const finId = document.getElementById(rowId+'-fin')?.value;
+  if (!finId) { toast('Select a finisher'); return; }
+  const sources = starterIds.map(sid => ({
+    starter_id: sid,
+    count: +(document.getElementById(rowId+'-src-'+sid)?.value||0)
+  })).filter(s=>s.count>0);
+  const totalIn = sources.reduce((a,s)=>a+s.count,0);
+  if (!totalIn) { toast('Enter at least one cell count'); return; }
+
+  const existing = (g.finisher_records||[]).find(r=>r.finisher_id===finId);
+  if (existing) {
+    existing.cells_received += totalIn;
+    sources.forEach(src=>{
+      const ex=(existing.sources||[]).find(s=>s.starter_id===src.starter_id);
+      if(ex) ex.count+=src.count; else (existing.sources=existing.sources||[]).push({...src});
+    });
+  } else {
+    if (!g.finisher_records) g.finisher_records=[];
+    g.finisher_records.push({ finisher_id:finId, cells_received:totalIn, sources,
+      capped:null, emerged:null, mated:null, check_dates:{} });
+  }
+  sources.forEach(src=>{
+    const sa=(g.starter_allocations||[]).find(s=>s.starter_id===src.starter_id);
+    if(sa) sa.cells_out=(sa.cells_out||0)+src.count;
+  });
+  save(); toast('Finisher added'); openRecordPanel(gid);
+}
+
 function updateFinRec(gid, i, key, val) {
   const g = gById(gid); if (!g) return;
   g.finisher_records[i][key] = val;
   save();
-  // Refresh just the summary section without closing panel
-  const sumEl = document.querySelector('#panel-body .card:first-child');
-  if (sumEl) {
-    const tEm2 = totalEmerged(g), gPct = pct(tEm2, g.grafted);
-    const tMt = totalMated(g), layPct = pct(tMt, g.grafted);
-    const tIn = (g.finisher_records||[]).reduce((a,r)=>a+(r.cells_received||0),0);
-    sumEl.innerHTML = `<div class="card-hd">Summary</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
-        <div class="fin-stat"><div class="fsn">${g.grafted||0}</div><div class="fsl">Grafted</div></div>
-        <div class="fin-stat"><div class="fsn">${tIn}</div><div class="fsl">In finishers</div></div>
-        <div class="fin-stat"><div class="fsn">${tEm2}</div><div class="fsl">Emerged</div></div>
-      </div>
-      ${gPct!==null?`<div><div class="sec-lbl">Emerged / grafted</div>${pctBar(gPct)}</div>`:''}
-      ${layPct!==null?`<div class="mt8"><div class="sec-lbl">Mated / grafted</div>${pctBar(layPct)}</div>`:''}`;
-  }
 }
 
 function updateFinRecDate(gid, i, stage, val) {
@@ -1069,50 +1224,19 @@ function removeFinRec(gid, i) {
   save(); openRecordPanel(gid);
 }
 
-function addFinRecord(gid) {
-  const g = gById(gid); if (!g) return;
-  const fid   = document.getElementById('rec-fin-sel').value;
-  const count = +document.getElementById('rec-fin-count').value;
-  const date  = document.getElementById('rec-fin-date').value;
-  if (!fid)    { toast('Select a finisher hive'); return; }
-  if (!count)  { toast('Enter cell count'); return; }
-  if (!g.finisher_records) g.finisher_records = [];
-  // Add or update finisher record
-  const existing = g.finisher_records.find(r=>r.finisher_id===fid);
-  if (existing) {
-    existing.cells_received = (existing.cells_received||0) + count;
-  } else {
-    g.finisher_records.push({ finisher_id:fid, cells_received:count, capped:null, emerged:null, mated:null, check_dates:{} });
-  }
-  // Log movement
-  if (!g.movements) g.movements = [];
-  g.movements.push({ id:uid(), date, from_hive_id:g.starter_id, to_hive_id:fid,
-    cell_count:count, type:'place', stage:'started', note:'' });
-  save(); toast('Finisher record added'); openRecordPanel(gid);
-}
-
 function logMovement(gid) {
   const g = gById(gid); if (!g) return;
-  const from  = document.getElementById('mv-from').value;
-  const to    = document.getElementById('mv-to').value;
-  const count = +document.getElementById('mv-count').value;
-  const date  = document.getElementById('mv-date').value;
-  const note  = document.getElementById('mv-note').value.trim();
-  if (!from || !to)  { toast('Select from and to hives'); return; }
-  if (!count)        { toast('Enter cell count'); return; }
-  if (!g.movements) g.movements = [];
-  g.movements.push({ id:uid(), date, from_hive_id:from, to_hive_id:to, cell_count:count, type:'move', note });
-  // If moving INTO a finisher, add or update its record
-  const toHive = hById(to);
-  if (toHive?.type === 'finisher') {
-    if (!g.finisher_records) g.finisher_records = [];
-    const existing = g.finisher_records.find(r=>r.finisher_id===to);
-    if (existing) existing.cells_received = (existing.cells_received||0) + count;
-    else g.finisher_records.push({ finisher_id:to, cells_received:count, capped:null, emerged:null, mated:null, check_dates:{} });
-  }
+  const from  = document.getElementById('mv-from')?.value;
+  const to    = document.getElementById('mv-to')?.value;
+  const count = +document.getElementById('mv-count')?.value;
+  const date  = document.getElementById('mv-date')?.value;
+  const note  = document.getElementById('mv-note')?.value.trim();
+  if (!from||!to) { toast('Select from and to hives'); return; }
+  if (!count)     { toast('Enter cell count'); return; }
+  if (!g.movements) g.movements=[];
+  g.movements.push({ id:uid(), date, from_hive_id:from, to_hive_id:to, cell_count:count, note });
   save(); toast('Movement logged'); openRecordPanel(gid);
 }
-
 // ═══════════════════════════════════════════════════════
 // HIVES PAGE
 // ═══════════════════════════════════════════════════════
@@ -1340,12 +1464,13 @@ function rStats() {
   const G = DB.grafts;
   if (!G.length) return `<div class="card"><div class="empty"><div class="ei">-</div><p>No data yet.</p></div></div>`;
 
-  // Season totals
-  const tGr = G.reduce((a,g)=>a+(g.grafted||0),0);
-  const tEm = G.reduce((a,g)=>a+totalEmerged(g),0);
-  const tMt = G.reduce((a,g)=>a+totalMated(g),0);
+  const tGr = G.reduce((a,g) => a+(g.grafted||0), 0);
+  const tEm = G.reduce((a,g) => a+totalEmerged(g), 0);
+  const tMt = G.reduce((a,g) => a+totalMated(g), 0);
+  const breedPct  = pct(tEm, tGr);
+  const matedPct  = pct(tMt, tGr);
 
-  // By graft date — group into weeks
+  // By week
   const byWeek = {};
   G.forEach(g => {
     const wk = dayjs(g.date).startOf('week').format('YYYY-MM-DD');
@@ -1370,6 +1495,28 @@ function rStats() {
     </tr>`;
   }).join('');
 
+  // Per starter (across all grafts)
+  const starterStats = {};
+  G.forEach(g => {
+    (g.starter_allocations||[]).forEach(sa => {
+      if (!starterStats[sa.starter_id]) starterStats[sa.starter_id] = { in:0, out:0 };
+      starterStats[sa.starter_id].in  += sa.cells_in||0;
+      starterStats[sa.starter_id].out += starterCellsOut(g, sa.starter_id);
+    });
+  });
+
+  const starterRows = Object.entries(starterStats).map(([sid,d]) => {
+    const S = hById(sid); const p = pct(d.out, d.in);
+    return `<tr>
+      <td style="padding:8px;font-size:12px;font-weight:600">${S?S.name:sid}</td>
+      <td style="padding:8px;text-align:center">${d.in}</td>
+      <td style="padding:8px;text-align:center">${d.out}</td>
+      <td style="padding:8px;text-align:center">
+        ${p!==null?`<span class="chip ${p>=70?'chip-ok':p>=40?'chip-warn':'chip-due'}">${p}%</span>`:'—'}
+      </td>
+    </tr>`;
+  }).join('');
+
   // Per finisher
   const finStats = {};
   G.forEach(g => {
@@ -1382,8 +1529,7 @@ function rStats() {
   });
 
   const finRows = Object.entries(finStats).map(([fid,d]) => {
-    const F = hById(fid);
-    const p = pct(d.emerged, d.received);
+    const F = hById(fid); const p = pct(d.emerged, d.received);
     return `<tr>
       <td style="padding:8px;font-size:12px;font-weight:600">${F?F.name:fid}</td>
       <td style="padding:8px;text-align:center">${d.received}</td>
@@ -1403,87 +1549,116 @@ function rStats() {
     breederStats[g.breeder_id].emerged += totalEmerged(g);
   });
 
+  const tblStyle = 'width:100%;border-collapse:collapse;font-size:12px';
+  const thStyle  = 'background:var(--wax);padding:8px;text-align:left';
+
   return `
+    <!-- HEADLINE BREEDING % -->
+    <div class="card" style="border:2px solid var(--amber)">
+      <div class="sec-lbl" style="margin-bottom:6px">Overall Breeding Percentage</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+        <span style="font-size:48px;font-weight:800;color:var(--amber);line-height:1">${breedPct!==null?breedPct+'%':'—'}</span>
+        <span class="t-sm">${tEm} out of ${tGr} grafted</span>
+      </div>
+      ${pctBar(breedPct)}
+      ${matedPct!==null?`<div class="mt8 sec-lbl">Mated & laying</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
+          <span style="font-size:28px;font-weight:800;color:var(--green);line-height:1">${matedPct}%</span>
+          <span class="t-sm">${tMt} mated of ${tGr} grafted</span>
+        </div>
+        ${pctBar(matedPct)}`:''}
+    </div>
+
+    <!-- SEASON TOTALS -->
     <div class="stats-row">
+      <div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div>
       <div class="stat"><div class="n">${tGr}</div><div class="l">Grafted</div></div>
       <div class="stat"><div class="n">${tEm}</div><div class="l">Emerged</div></div>
       <div class="stat"><div class="n">${tMt}</div><div class="l">Mated</div></div>
-      <div class="stat"><div class="n">${pct(tEm,tGr)??'—'}${pct(tEm,tGr)!==null?'%':''}</div><div class="l">Season %</div></div>
     </div>
 
+    <!-- BY BREEDER -->
     <div class="card">
-      <div class="card-hd">Season — Emerged / Grafted</div>
-      ${pctBar(pct(tEm,tGr))}
-      <div class="mt8">${pctBar(pct(tMt,tGr))}
-        <div class="t-xs mt8">Mated / grafted</div>
-      </div>
+      <div class="card-hd">By Breeder</div>
+      ${Object.entries(breederStats).map(([bid,d]) => {
+        const B = hById(bid); const p = pct(d.emerged, d.grafted);
+        return `<div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+            <span class="chip chip-B">${B?B.name:bid}</span>
+            <span class="t-xs">${d.grafted} grafted · ${d.emerged} emerged</span>
+          </div>${pctBar(p)}
+        </div>`;
+      }).join('')||`<p class="t-sm">No data yet.</p>`}
     </div>
 
+    <!-- BY STARTER -->
     <div class="card">
-      <div class="card-hd">By Week</div>
+      <div class="card-hd">By Starter</div>
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <table style="${tblStyle}">
           <thead><tr style="background:var(--wax)">
-            <th style="padding:8px;text-align:left">Week</th>
-            <th style="padding:8px">Grafts</th>
-            <th style="padding:8px">Grafted</th>
-            <th style="padding:8px">Emerged</th>
-            <th style="padding:8px">Mated</th>
-            <th style="padding:8px">Rate</th>
+            <th style="${thStyle}">Starter</th>
+            <th style="padding:8px;text-align:center">Received</th>
+            <th style="padding:8px;text-align:center">Sent out</th>
+            <th style="padding:8px;text-align:center">Rate</th>
           </tr></thead>
-          <tbody>${weekRows}</tbody>
+          <tbody>${starterRows||'<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--brown3)">No data yet</td></tr>'}</tbody>
         </table>
       </div>
     </div>
 
+    <!-- BY FINISHER -->
     <div class="card">
-      <div class="card-hd">By Finisher Hive</div>
+      <div class="card-hd">By Finisher</div>
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <table style="${tblStyle}">
           <thead><tr style="background:var(--wax)">
-            <th style="padding:8px;text-align:left">Finisher</th>
-            <th style="padding:8px">Received</th>
-            <th style="padding:8px">Emerged</th>
-            <th style="padding:8px">Mated</th>
-            <th style="padding:8px">Rate</th>
+            <th style="${thStyle}">Finisher</th>
+            <th style="padding:8px;text-align:center">In</th>
+            <th style="padding:8px;text-align:center">Emerged</th>
+            <th style="padding:8px;text-align:center">Mated</th>
+            <th style="padding:8px;text-align:center">Rate</th>
           </tr></thead>
           <tbody>${finRows||'<tr><td colspan="5" style="padding:12px;text-align:center;color:var(--brown3)">No data yet</td></tr>'}</tbody>
         </table>
       </div>
     </div>
 
+    <!-- BY WEEK -->
     <div class="card">
-      <div class="card-hd">By Breeder</div>
-      ${Object.entries(breederStats).map(([bid,d]) => {
-        const B = hById(bid); const p = pct(d.emerged,d.grafted);
-        return `<div style="margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-            <span class="chip chip-B">${B?B.name:bid}</span>
-            <span class="t-xs">${d.grafted} grafted · ${d.emerged} emerged</span>
-          </div>
-          ${pctBar(p)}
-        </div>`;
-      }).join('')||`<p class="t-sm">No data yet.</p>`}
+      <div class="card-hd">By Week</div>
+      <div style="overflow-x:auto">
+        <table style="${tblStyle}">
+          <thead><tr style="background:var(--wax)">
+            <th style="${thStyle}">Week</th>
+            <th style="padding:8px;text-align:center">Grafts</th>
+            <th style="padding:8px;text-align:center">Grafted</th>
+            <th style="padding:8px;text-align:center">Emerged</th>
+            <th style="padding:8px;text-align:center">Mated</th>
+            <th style="padding:8px;text-align:center">Rate</th>
+          </tr></thead>
+          <tbody>${weekRows}</tbody>
+        </table>
+      </div>
     </div>
 
+    <!-- EVERY GRAFT -->
     <div class="card">
       <div class="card-hd">Every Graft</div>
       ${G.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(g => {
         const B=hById(g.breeder_id), em=totalEmerged(g), p=pct(em,g.grafted);
-        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--wax2)">
+        const starters=(g.starter_allocations||[]).map(sa=>hById(sa.starter_id)?.name||'?').join(', ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--wax2);flex-wrap:wrap">
           <span style="font-size:13px;font-weight:700;min-width:90px">${fmtF(g.date)}</span>
           <span class="chip chip-B" style="font-size:10px">${B?B.name:'?'}</span>
           <span class="chip ${g.protocol==='autumn'?'chip-A':'chip-std'}" style="font-size:10px">${g.protocol}</span>
-          <span class="t-xs">${g.grafted||0} → ${em}</span>
-          ${p!==null?`<span class="chip ${p>=70?'chip-ok':p>=40?'chip-warn':'chip-due'}" style="margin-left:auto">${p}%</span>`:'<span style="margin-left:auto" class="t-xs">—</span>'}
+          <span class="t-xs">${g.grafted||0} grafted → ${em} emerged</span>
+          ${p!==null?`<span class="chip ${p>=70?'chip-ok':p>=40?'chip-warn':'chip-due'}" style="margin-left:auto">${p}%</span>`
+                    :`<span style="margin-left:auto" class="t-xs">—</span>`}
         </div>`;
       }).join('')}
     </div>`;
 }
-
-// ═══════════════════════════════════════════════════════
-// CALENDAR — Gantt season view
-// ═══════════════════════════════════════════════════════
 function rCalendar() {
   const G = DB.grafts;
   if (!G.length) return `<div class="card"><div class="empty"><div class="ei">-</div><p>No grafts yet.</p></div></div>`;
