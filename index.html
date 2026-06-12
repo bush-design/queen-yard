@@ -386,10 +386,43 @@ function pctBar(p) {
 
 function saveLocal() {
   try {
-    localStorage.setItem('qct2', JSON.stringify({hives:DB.hives, grafts:DB.grafts}));
+    const data = JSON.stringify({hives:DB.hives, grafts:DB.grafts});
+    localStorage.setItem('qct2', data);
+    // Verify it actually wrote
+    const check = localStorage.getItem('qct2');
+    if (!check) throw new Error('Write appeared to succeed but read back empty');
     const ind = document.getElementById('save-indicator');
     if (ind) { ind.textContent = 'Saved'; ind.style.opacity='1'; setTimeout(()=>ind.style.opacity='0', 1200); }
-  } catch(e) { console.error('localStorage save failed:', e); toast('Could not save: ' + e.message); }
+  } catch(e) {
+    console.error('localStorage save failed:', e);
+    toast('Storage error: ' + e.message);
+  }
+}
+
+function testStorage() {
+  const result = document.getElementById('storage-test-result');
+  if (!result) return;
+  try {
+    // Test write
+    localStorage.setItem('qct_test', 'hello');
+    const val = localStorage.getItem('qct_test');
+    localStorage.removeItem('qct_test');
+    if (val === 'hello') {
+      // Check if existing data is there
+      const existing = localStorage.getItem('qct2');
+      const parsed = existing ? JSON.parse(existing) : null;
+      const hiveCount  = parsed?.hives?.length  || 0;
+      const graftCount = parsed?.grafts?.length || 0;
+      result.style.color = 'var(--green)';
+      result.textContent = 'Storage is working. ' + hiveCount + ' hive(s) and ' + graftCount + ' graft(s) saved locally.';
+    } else {
+      result.style.color = 'var(--red)';
+      result.textContent = 'Storage test failed — value did not persist.';
+    }
+  } catch(e) {
+    result.style.color = 'var(--red)';
+    result.textContent = 'Storage blocked: ' + e.message + '. This is a browser setting issue.';
+  }
 }
 function save() {
   saveLocal();
@@ -1655,6 +1688,12 @@ function rSettings() {
       <button class="btn btn-d btn-sm" onclick="clrAll()">Clear all data</button>
     </div>
     <p class="t-xs mt8">Export saves a local backup. Import replaces all current data.</p>
+
+    <div class="divider"></div>
+    <div class="sec-lbl">Storage Test</div>
+    <p class="t-sm" style="margin-bottom:10px">Tap to check if your browser is saving data locally.</p>
+    <button class="btn btn-o btn-sm" onclick="testStorage()">Test local storage</button>
+    <div id="storage-test-result" style="margin-top:8px;font-size:13px;font-weight:600"></div>
   </div>`;
 }
 
