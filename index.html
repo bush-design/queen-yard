@@ -384,12 +384,16 @@ function pctBar(p) {
   </div>`;
 }
 
-function save() {
+function saveLocal() {
   try {
     localStorage.setItem('qct2', JSON.stringify({hives:DB.hives, grafts:DB.grafts}));
     const ind = document.getElementById('save-indicator');
     if (ind) { ind.textContent = 'Saved'; ind.style.opacity='1'; setTimeout(()=>ind.style.opacity='0', 1200); }
   } catch(e) { console.error('localStorage save failed:', e); toast('Could not save: ' + e.message); }
+}
+function save() {
+  saveLocal();
+  if (DB.supaUrl && DB.supaKey) pushToSupa();
 }
 function load() {
   const r = localStorage.getItem('qct2');
@@ -799,7 +803,7 @@ function cancelGraft() { graftForm=null; go('dash'); }
 function deleteGraft(id) {
   if (!confirm('Delete this graft batch?')) return;
   DB.grafts = DB.grafts.filter(g=>g.id!==id);
-  _localSave();
+  saveLocal();
   deleteFromSupa('qct_grafts', id);
   toast('Deleted'); render();
 }
@@ -1159,11 +1163,18 @@ function confirmAddHive(type) {
   const inp = document.getElementById('new-hive-name');
   const n = inp ? inp.value.trim() : '';
   if (!n) { toast('Enter a name'); return; }
-  DB.hives.push({ id:uid(), type, name:n, queen_status:'unknown', strength:3, notes:'', log:[] });
+  const newHive = { id:uid(), type, name:n, queen_status:'unknown', strength:3, notes:'', log:[] };
+  DB.hives.push(newHive);
   save();
-  document.getElementById('add-hive-modal').remove();
-  toast(n + ' added');
+  const modal = document.getElementById('add-hive-modal');
+  if (modal) modal.remove();
+  // Switch tab to the type just added so user sees it immediately
+  hvTab = type + 's';
+  page = 'hives';
   render();
+  toast(n + ' added');
+  // Open the panel for the new hive straight away
+  openPanel(newHive.id);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1284,7 +1295,7 @@ function deleteHive() {
   const h = hById(panelId);
   if (!confirm('Delete ' + h?.name + '?')) return;
   DB.hives = DB.hives.filter(x=>x.id!==panelId);
-  _localSave();
+  saveLocal();
   deleteFromSupa('qct_hives', panelId);
   closePanel(); render(); toast('Deleted');
 }
@@ -1751,7 +1762,7 @@ async function syncFromSupa() {
     DB.grafts = grafts.map(g => ({
       ...g, movements: g.movements||[], finisher_records: g.finisher_records||[]
     }));
-    _localSave();
+    saveLocal();
     const dot = document.getElementById('db-dot');
     if (dot) dot.className = 'db-dot ok';
     return true;
@@ -1798,11 +1809,7 @@ async function deleteFromSupa(table, id) {
 }
 
 // Wrap save() to also push to Supabase
-const _localSave = save;
-function save() {
-  _localSave();
-  if (DB.supaUrl && DB.supaKey) pushToSupa();
-}
+// save() defined above — pushes local + supabase
 // ═══════════════════════════════════════════════════════
 // PIN LOCK
 // ═══════════════════════════════════════════════════════
