@@ -32,6 +32,23 @@ nav button.active, nav button:hover { background:rgba(252,211,77,.12); color:var
 .db-dot { width:8px; height:8px; border-radius:50%; background:var(--brown3); }
 .db-dot.ok { background:#4ade80; }
 
+/* PIN LOCK */
+.pin-screen { position:fixed; inset:0; background:var(--brown); z-index:9999;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; }
+.pin-title { color:var(--gold); font-size:22px; font-weight:800; letter-spacing:-.5px; }
+.pin-sub { color:var(--brown3); font-size:14px; }
+.pin-dots { display:flex; gap:14px; }
+.pin-dot { width:16px; height:16px; border-radius:50%; border:2px solid var(--brown3); background:transparent; transition:background .15s; }
+.pin-dot.filled { background:var(--honey); border-color:var(--honey); }
+.pin-pad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; width:220px; }
+.pin-key { background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); border-radius:12px;
+  color:var(--white); font-size:22px; font-weight:700; padding:16px; text-align:center;
+  cursor:pointer; transition:background .1s; font-family:var(--font); }
+.pin-key:hover { background:rgba(255,255,255,.14); }
+.pin-key:active { background:rgba(255,255,255,.2); transform:scale(.96); }
+.pin-key.del { font-size:16px; color:var(--brown3); }
+.pin-error { color:#f87171; font-size:13px; font-weight:600; min-height:20px; }
+
 /* LAYOUT */
 main { padding:calc(var(--nh) + 16px) 12px 100px; max-width:700px; margin:0 auto; }
 
@@ -431,7 +448,7 @@ function stagesFor(g) {
   return [
     { key:'place',   label:'Grafted',        day:0,  date:g.date },
     { key:'started', label:'Into finisher',  day:1,  date:d.add(1,'day').format('YYYY-MM-DD') },
-    { key:'capped',  label:'Capped',         day:6,  date:d.add(6,'day').format('YYYY-MM-DD') },
+    { key:'capped',  label:'Capped',         day:5,  date:d.add(5,'day').format('YYYY-MM-DD') },
     { key:'emerged', label:'Out',            day:10, date:d.add(10,'day').format('YYYY-MM-DD') },
     { key:'mated',   label:'Mated',          day:30, date:d.add(30,'day').format('YYYY-MM-DD') },
   ];
@@ -535,57 +552,92 @@ function rApiarySummary() {
 
 function rGraftCard(g) {
   const B = hById(g.breeder_id), S = hById(g.starter_id);
-  const stages = stagesFor(g);
-  const tl = stages.map(s => {
-    const cls = isPast(s.date) ? 'past' : isToday(s.date) ? 'now' : '';
-    return `<div class="tl-node">
-      <div class="tl-dot ${cls}">${isPast(s.date)?'v':'o'}</div>
-      <div class="tl-lbl">${s.label}</div>
-      <div class="tl-date">${fmt(s.date)}</div>
-    </div>`;
-  }).join('');
+  const frecs = g.finisher_records || [];
+  const d = dayjs(g.date);
+  const isA = g.protocol === 'autumn';
 
-  const frecs = g.finisher_records||[];
-  const tEm = totalEmerged(g), tGr = g.grafted||0;
+  const cappedDate  = isA ? null : d.add(5,'day').format('YYYY-MM-DD');
+  const outDate     = isA ? d.add(2,'day').format('YYYY-MM-DD') : d.add(10,'day').format('YYYY-MM-DD');
+  const starterDate = isA ? null : d.add(1,'day').format('YYYY-MM-DD');
+
+  const tEm  = totalEmerged(g);
+  const tGr  = g.grafted || 0;
+  const tIn  = frecs.reduce((a,r) => a + (r.cells_received||0), 0);
   const gPct = pct(tEm, tGr);
 
-  const finRows = frecs.map(fr => {
+  // Stage dots
+  const stages = stagesFor(g).slice(1); // skip 'place'
+  const stageDots = stages.map(st => {
+    const done = frecs.some(r => r[st.key] != null);
+    const due  = isToday(st.date);
+    const over = isPast(st.date) && !done;
+    const cls  = done ? 'past' : due ? 'now' : '';
+    return `<div class="tl-node">
+      <div class="tl-dot ${cls}">${done?'v':'o'}</div>
+      <div class="tl-lbl">${st.label}</div>
+      <div class="tl-date">${fmt(st.date)}</div>
+    </div>`;
+  }).join('');
+
+  // Journey flow: B -> S -> finishers
+  const finCols = frecs.map(fr => {
     const F = hById(fr.finisher_id);
     const fp = pct(fr.emerged||0, fr.cells_received||0);
-    return `<div class="fin-row">
-      <div class="fin-row-hd">
-        <span class="chip chip-F">${F?F.name:'?'}</span>
-        <span class="t-xs">${fr.cells_received||0} cells in</span>
-        ${fp !== null ? `<span class="chip ${fp>=70?'chip-ok':fp>=40?'chip-warn':'chip-due'}">${fp}%</span>` : ''}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
-        ${g.protocol!=='autumn'?`<div class="fin-stat"><div class="fsn">${fr.capped??'—'}</div><div class="fsl">Capped</div></div>`:''}
-        <div class="fin-stat"><div class="fsn">${fr.emerged??'—'}</div><div class="fsl">Emerged</div></div>
-        <div class="fin-stat"><div class="fsn">${fr.mated??'—'}</div><div class="fsl">Mated</div></div>
+    const fpCol = fp===null?'var(--brown3)':fp>=70?'var(--green)':fp>=40?'var(--amber)':'var(--red)';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:64px">
+      <div style="background:var(--cF-bg);border:1px solid var(--cF);border-radius:var(--rs);padding:6px 8px;text-align:center;width:100%">
+        <div style="font-size:11px;font-weight:700;color:var(--cF)">${F?F.name:'?'}</div>
+        <div style="font-size:10px;color:var(--brown3);margin-top:1px">${fr.cells_received||0} in</div>
+        ${fr.capped!=null?`<div style="font-size:10px;color:var(--amber)">${fr.capped} capped</div>`:''}
+        <div style="font-size:13px;font-weight:800;color:${fpCol};margin-top:2px">${fr.emerged!=null?fr.emerged:'—'}</div>
+        <div style="font-size:9px;color:var(--brown3)">emerged</div>
+        ${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fpCol}">${fp}%</div>`:''}
       </div>
     </div>`;
   }).join('');
+
+  // Arrow between B and S
+  const chainHtml = `
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="background:var(--cB-bg);border:1px solid var(--cB);border-radius:var(--rs);padding:6px 10px;text-align:center">
+        <div style="font-size:11px;font-weight:700;color:var(--cB)">${B?B.name:'?'}</div>
+        <div style="font-size:10px;color:var(--brown3)">${tGr} grafted</div>
+      </div>
+      ${!isA ? `<div style="color:var(--brown3);font-size:14px">→</div>
+      <div style="background:var(--cS-bg);border:1px solid var(--cS);border-radius:var(--rs);padding:6px 10px;text-align:center">
+        <div style="font-size:11px;font-weight:700;color:var(--cS)">${S?S.name:'?'}</div>
+        <div style="font-size:10px;color:var(--brown3)">${tIn} started</div>
+      </div>` : ''}
+      ${frecs.length ? `<div style="color:var(--brown3);font-size:14px">→</div>` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${finCols}</div>
+    </div>`;
 
   return `<div class="graft-card">
     <div class="graft-hd" onclick="toggleGraft('${g.id}')">
       <div class="graft-title">${fmtF(g.date)}</div>
-      <span class="chip ${g.protocol==='autumn'?'chip-A':'chip-std'}">${g.protocol}</span>
-      <span class="chip chip-B">${B?B.name:'?'}</span>
+      <span class="chip ${isA?'chip-A':'chip-std'}">${isA?'Autumn':'Standard'}</span>
+      <span class="chip chip-B" style="font-size:10px">${B?B.name:'?'}</span>
       <span class="t-xs">${tGr} grafted</span>
-      ${gPct !== null ? `<span class="chip ${gPct>=70?'chip-ok':gPct>=40?'chip-warn':'chip-due'}">${gPct}%</span>` : ''}
+      ${gPct!==null?`<span class="chip ${gPct>=70?'chip-ok':gPct>=40?'chip-warn':'chip-due'}">${gPct}%</span>`:''}
+      <span style="color:var(--brown3);margin-left:auto">›</span>
     </div>
     <div class="graft-body" id="gb-${g.id}">
-      <div class="tl" style="margin-bottom:8px">${tl}</div>
-      <div class="t-xs" style="margin-bottom:10px">
-        ${B?`<span class="chip chip-B">${B.name}</span>`:''}
-        ${S?`<span class="chip chip-S" style="margin-left:4px">${S.name}</span>`:''}
-        ${frecs.length ? `<span style="margin-left:4px">→ ${frecs.length} finisher${frecs.length!==1?'s':''}</span>` : ''}
-      </div>
-      ${finRows}
-      ${pctBar(gPct)}
+
+      <div class="tl" style="margin-bottom:10px">${stageDots}</div>
+
+      ${chainHtml}
+
+      ${gPct!==null ? `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+          <span class="t-xs">Emerged / grafted</span>
+          <span class="t-xs" style="font-weight:700">${tEm} / ${tGr}</span>
+        </div>
+        ${pctBar(gPct)}
+      </div>` : ''}
+
       <div class="divider"></div>
       <div class="btn-row">
-        <button class="btn btn-p btn-sm" onclick="openGraft('${g.id}')">Record / update</button>
+        <button class="btn btn-p btn-sm" onclick="openRecordPanel('${g.id}')">Record / update</button>
         <button class="btn btn-o btn-sm" onclick="editGraft('${g.id}')">Edit</button>
         <button class="btn btn-d btn-sm" onclick="deleteGraft('${g.id}')">Delete</button>
       </div>
@@ -593,7 +645,6 @@ function rGraftCard(g) {
     </div>
   </div>`;
 }
-
 function toggleGraft(id) {
   const el = document.getElementById('gb-'+id);
   if (el) el.classList.toggle('open');
@@ -629,7 +680,7 @@ function rGraftForm() {
   const stages = isA
     ? [{l:'Graft',d:f.date},{l:'Out Day 2',d:d.add(2,'day').format('YYYY-MM-DD')}]
     : [{l:'Graft',d:f.date},{l:'Into finisher',d:d.add(1,'day').format('YYYY-MM-DD')},
-       {l:'Capped',d:d.add(6,'day').format('YYYY-MM-DD')},
+       {l:'Capped',d:d.add(5,'day').format('YYYY-MM-DD')},
        {l:'Out',d:d.add(10,'day').format('YYYY-MM-DD')},
        {l:'Mated',d:d.add(30,'day').format('YYYY-MM-DD')}];
 
@@ -742,7 +793,9 @@ function cancelGraft() { graftForm=null; go('dash'); }
 function deleteGraft(id) {
   if (!confirm('Delete this graft batch?')) return;
   DB.grafts = DB.grafts.filter(g=>g.id!==id);
-  save(); toast('Deleted'); render();
+  _localSave();
+  deleteFromSupa('qct_grafts', id);
+  toast('Deleted'); render();
 }
 
 function openGraft(id) { openRecordPanel(id); }
@@ -1179,7 +1232,9 @@ function deleteHive() {
   const h = hById(panelId);
   if (!confirm('Delete ' + h?.name + '?')) return;
   DB.hives = DB.hives.filter(x=>x.id!==panelId);
-  save(); closePanel(); render(); toast('Deleted');
+  _localSave();
+  deleteFromSupa('qct_hives', panelId);
+  closePanel(); render(); toast('Deleted');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1331,111 +1386,203 @@ function rStats() {
 }
 
 // ═══════════════════════════════════════════════════════
-// CALENDAR
+// CALENDAR — Gantt season view
 // ═══════════════════════════════════════════════════════
 function rCalendar() {
   const G = DB.grafts;
   if (!G.length) return `<div class="card"><div class="empty"><div class="ei">-</div><p>No grafts yet.</p></div></div>`;
 
-  const allDates = G.flatMap(g => {
-    const d = dayjs(g.date);
-    return g.protocol==='autumn'
-      ? [g.date, d.add(2,'day').format('YYYY-MM-DD')]
-      : [g.date, d.add(1,'day').format('YYYY-MM-DD'), d.add(6,'day').format('YYYY-MM-DD'),
-         d.add(10,'day').format('YYYY-MM-DD'), d.add(30,'day').format('YYYY-MM-DD')];
-  });
-  const minD = dayjs(allDates.reduce((a,b)=>a<b?a:b)).subtract(2,'day');
-  const maxD = dayjs(allDates.reduce((a,b)=>a>b?a:b)).add(5,'day');
-  const days = Math.min(maxD.diff(minD,'day')+1, 90);
-  const cols = Array.from({length:days}, (_,i) => minD.add(i,'day'));
+  // Build 60-day window anchored to earliest graft
+  const allDates = G.map(g => g.date);
+  const minD = dayjs(allDates.reduce((a,b) => a<b?a:b));
+  const CAL_DAYS = 60;
+  const cols = Array.from({length: CAL_DAYS}, (_,i) => minD.add(i,'day'));
+  const todayStr = today();
 
-  let pm = '';
-  const mrow = cols.map(c => {
-    const mo = c.format('MMM YY');
-    if (mo!==pm) { pm=mo; return `<th style="text-align:left;background:#374151">${mo}</th>`; }
-    return `<th></th>`;
-  }).join('');
-  const drow = cols.map(c => {
-    const it = isToday(c.format('YYYY-MM-DD'));
-    return `<th style="${it?'background:var(--gold);color:var(--brown)':''}">${c.format('D')}</th>`;
-  }).join('');
+  // Col index helpers
+  const colX = (dateStr) => {
+    const idx = cols.findIndex(c => c.format('YYYY-MM-DD') === dateStr);
+    return idx >= 0 ? idx : null;
+  };
+  const COL_W = 9;   // px per day column
+  const ROW_H = 22;  // px per finisher row
+  const LABEL_W = 78;
+  const TOTAL_W = LABEL_W + CAL_DAYS * COL_W;
 
-  const rows = G.slice().sort((a,b)=>a.date.localeCompare(b.date)).flatMap(g => {
-    const B=hById(g.breeder_id), S=hById(g.starter_id);
-    const frecs = g.finisher_records||[];
+  // Build rows: one per finisher per graft
+  const rows = [];
+  G.slice().sort((a,b) => a.date.localeCompare(b.date)).forEach(g => {
+    const B = hById(g.breeder_id), S = hById(g.starter_id);
+    const frecs = g.finisher_records || [];
     const d = dayjs(g.date);
-    const sm = {};
-    sm[g.date] = {l:'G', c:'cc-g'};
-    if (g.protocol==='autumn') {
-      sm[d.add(1,'day').format('YYYY-MM-DD')] = {l:'·', c:'cc-s'};
-      sm[d.add(2,'day').format('YYYY-MM-DD')] = {l:'Out', c:'cc-o'};
-    } else {
-      sm[d.add(1,'day').format('YYYY-MM-DD')] = {l:'S', c:'cc-s'};
-      [2,3,4,5].forEach(i => sm[d.add(i,'day').format('YYYY-MM-DD')] = {l:'·', c:'cc-s'});
-      sm[d.add(6,'day').format('YYYY-MM-DD')] = {l:'Cap', c:'cc-c'};
-      [7,8,9].forEach(i => sm[d.add(i,'day').format('YYYY-MM-DD')] = {l:'·', c:'cc-c'});
-      sm[d.add(10,'day').format('YYYY-MM-DD')] = {l:'Out', c:'cc-o'};
-      sm[d.add(30,'day').format('YYYY-MM-DD')] = {l:'M', c:'cc-m'};
+    const dates = {
+      graft:   g.date,
+      starter: d.add(1,'day').format('YYYY-MM-DD'),
+      capped:  d.add(5,'day').format('YYYY-MM-DD'),
+      out:     d.add(10,'day').format('YYYY-MM-DD'),
+      mated:   d.add(30,'day').format('YYYY-MM-DD'),
+    };
+    if (g.protocol === 'autumn') {
+      dates.out = d.add(2,'day').format('YYYY-MM-DD');
+      delete dates.starter; delete dates.capped; delete dates.mated;
     }
+    const groupLabel = `${fmtF(g.date)} · ${B?B.name:'?'}→${S?S.name:'?'}`;
+
     if (!frecs.length) {
-      const cells = cols.map(c => {
-        const ds = c.format('YYYY-MM-DD'), st = sm[ds], it = isToday(ds);
-        return `<td class="${it?'cal-today':''}">${st?`<span class="${st.c}">${st.l}</span>`:''}</td>`;
-      }).join('');
-      return [`<tr><td class="row-lbl">${B?B.name:'?'} / ${S?S.name:'?'}</td><td class="row-lbl" style="color:var(--cF)">—</td>${cells}</tr>`];
+      rows.push({ graft:g, finisher:null, dates, groupLabel, isFirst:true, grafted:g.grafted||0, cells_received:0, emerged:null });
+    } else {
+      frecs.forEach((fr,i) => {
+        const F = hById(fr.finisher_id);
+        rows.push({ graft:g, finisher:F, fr, dates, groupLabel, isFirst:i===0,
+          grafted:g.grafted||0, cells_received:fr.cells_received||0, emerged:fr.emerged, mated:fr.mated });
+      });
     }
-    return frecs.map((fr,li) => {
-      const F = hById(fr.finisher_id);
-      const cells = cols.map(c => {
-        const ds = c.format('YYYY-MM-DD'), st = sm[ds], it = isToday(ds);
-        return `<td class="${it?'cal-today':''}">${st?`<span class="${st.c}">${st.l}</span>`:''}</td>`;
-      }).join('');
-      return `<tr>
-        <td class="row-lbl" style="${li===0?'border-top:2px solid var(--amber)':'padding-left:16px;font-size:9px'}">${li===0?`${B?B.name:'?'} / ${S?S.name:'?'}`:(g.date)}</td>
-        <td class="row-lbl" style="${li===0?'border-top:2px solid var(--amber)':''}color:var(--cF);font-size:9px">${F?F.name:'?'}</td>
-        ${cells}
-      </tr>`;
-    });
+  });
+
+  // Today column index
+  const todayIdx = cols.findIndex(c => c.format('YYYY-MM-DD') === todayStr);
+
+  // Build month header spans
+  const monthSpans = [];
+  let lastMo = '', moStart = 0;
+  cols.forEach((c,i) => {
+    const mo = c.format('MMM YY');
+    if (mo !== lastMo) {
+      if (lastMo) monthSpans.push({label: lastMo, start: moStart, end: i-1});
+      lastMo = mo; moStart = i;
+    }
+  });
+  monthSpans.push({label: lastMo, start: moStart, end: cols.length-1});
+
+  // Build date header: show every 5th day
+  const dateHdrCells = cols.map((c,i) => {
+    const isT = c.format('YYYY-MM-DD') === todayStr;
+    const show = i % 5 === 0;
+    return `<td style="width:${COL_W}px;min-width:${COL_W}px;padding:0;text-align:center;font-size:8px;color:${isT?'var(--amber)':'var(--brown3)'};background:${isT?'var(--wax)':'transparent'};font-weight:${isT?'700':'400'}">${show?c.format('D'):''}</td>`;
   }).join('');
 
-  return `<div class="card">
-    <div class="card-hd">Calendar
-      <span class="t-xs" style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap">
-        <span class="cc-g" style="border-radius:3px;padding:1px 5px">G</span>Graft
-        <span class="cc-s" style="border-radius:3px;padding:1px 5px">S</span>Starter
-        <span class="cc-c" style="border-radius:3px;padding:1px 5px">Cap</span>
-        <span class="cc-o" style="border-radius:3px;padding:1px 5px">Out</span>
-        <span class="cc-m" style="border-radius:3px;padding:1px 5px">M</span>Mated
-      </span>
-    </div>
-    <div class="cal-scroll">
-      <table class="cal-tbl">
-        <thead>
-          <tr><th>Batch</th><th>Finisher</th>${mrow}</tr>
-          <tr><th></th><th></th>${drow}</tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  </div>`;
-}
+  const monthHdrCells = monthSpans.map(m =>
+    `<td colspan="${m.end-m.start+1}" style="padding:2px 4px;font-size:9px;font-weight:700;color:var(--white);background:var(--brown);text-align:left">${m.label}</td>`
+  ).join('');
 
+  // Build data rows
+  let tableRows = '';
+  let lastGraftId = null;
+  rows.forEach(row => {
+    const g = row.graft;
+    const isNewGraft = g.id !== lastGraftId;
+    lastGraftId = g.id;
+    const topBorder = isNewGraft ? 'border-top:2px solid var(--amber)' : '';
+
+    // label cells
+    const labelCell = `<td style="padding:2px 8px;font-size:10px;font-weight:700;background:var(--wax);white-space:nowrap;position:sticky;left:0;z-index:2;${topBorder}">${row.isFirst ? row.groupLabel : ''}</td>
+      <td style="padding:2px 6px;font-size:9px;color:var(--cF);background:var(--wax);white-space:nowrap;position:sticky;left:0;z-index:2;${topBorder}">${row.finisher?row.finisher.name:row.isFirst?'—':''}</td>`;
+
+    // Bar cells
+    const { dates } = row;
+    const dateCells = cols.map((c,i) => {
+      const ds = c.format('YYYY-MM-DD');
+      const isT = ds === todayStr;
+      let inner = '', bg = isT ? 'var(--wax)' : 'transparent';
+
+      if (g.protocol === 'standard') {
+        if (ds === dates.graft)   { inner = `<span style="background:var(--amber);color:var(--white);border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">G</span>`; }
+        else if (ds === dates.starter) { inner = `<span style="background:#93c5fd;color:#1e3a8a;border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">S</span>`; }
+        else if (ds > dates.starter && ds < dates.capped) { bg = '#eff6ff'; }
+        else if (ds === dates.capped)  {
+          const hasCapped = row.fr && row.fr.capped != null;
+          inner = `<span style="background:${hasCapped?'var(--honey)':'transparent'};color:var(--brown);border:1px solid var(--honey);border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">${hasCapped?row.fr.capped:'?'}</span>`;
+        }
+        else if (ds > dates.capped && ds < dates.out) { bg = '#fef9c3'; }
+        else if (ds === dates.out) {
+          const hasOut = row.fr && row.fr.emerged != null;
+          const p = row.cells_received ? pct(row.fr?.emerged||0, row.cells_received) : null;
+          const col = p===null?'var(--brown3)':p>=70?'var(--green)':p>=40?'var(--amber)':'var(--red)';
+          if (isPast(ds) || isToday(ds)) {
+            inner = `<span style="background:${hasOut?'#bbf7d0':'transparent'};color:${col};border:1px solid #86efac;border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">${hasOut?row.fr.emerged:'?'}</span>`;
+          } else {
+            inner = `<span style="border:1px dashed var(--brown3);border-radius:3px;padding:1px 3px;font-size:8px;color:var(--brown3)">—</span>`;
+          }
+        }
+        else if (ds === dates.mated && row.fr?.mated != null) {
+          inner = `<span style="background:#e9d5ff;color:#6b21a8;border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">M</span>`;
+        }
+      } else {
+        // autumn
+        if (ds === dates.graft) { inner = `<span style="background:var(--cA);color:var(--white);border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">G</span>`; }
+        else if (ds === dates.out) {
+          const hasOut = row.fr && row.fr.emerged != null;
+          inner = hasOut
+            ? `<span style="background:#bbf7d0;color:var(--green);border-radius:3px;padding:1px 3px;font-size:8px;font-weight:700">${row.fr.emerged}</span>`
+            : `<span style="border:1px dashed var(--brown3);border-radius:3px;padding:1px 3px;font-size:8px;color:var(--brown3)">—</span>`;
+        }
+      }
+      return `<td style="width:${COL_W}px;min-width:${COL_W}px;padding:1px 0;text-align:center;background:${bg};border:0.5px solid var(--wax2);${topBorder}">${inner}</td>`;
+    }).join('');
+
+    tableRows += `<tr onclick="openRecordPanel('${g.id}')" style="cursor:pointer">${labelCell}${dateCells}</tr>`;
+  });
+
+  // Today line (we use sticky column highlight instead)
+  return `
+    <div class="card" style="padding:12px 8px">
+      <div class="card-hd" style="margin-bottom:8px">Season Calendar
+        <span class="t-xs" style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="background:var(--amber);color:var(--white);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700">G</span>Graft
+          <span style="background:#93c5fd;color:#1e3a8a;border-radius:3px;padding:1px 5px;font-size:9px">S</span>Starter
+          <span style="background:var(--honey);color:var(--brown);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700">n</span>Capped
+          <span style="background:#bbf7d0;color:var(--green);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700">n</span>Out
+          <span style="border:1px dashed var(--brown3);border-radius:3px;padding:1px 5px;font-size:9px;color:var(--brown3)">—</span>Due
+        </span>
+      </div>
+      <p class="t-xs" style="margin-bottom:8px">Tap any row to record counts. Today is highlighted.</p>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table style="border-collapse:collapse;font-size:10px;width:${TOTAL_W}px">
+          <thead>
+            <tr><td colspan="2" style="background:var(--brown);padding:2px 8px"></td>${monthHdrCells}</tr>
+            <tr>
+              <td style="padding:2px 8px;background:var(--wax);position:sticky;left:0;z-index:3;font-size:9px;font-weight:700;color:var(--brown2)">Graft</td>
+              <td style="padding:2px 8px;background:var(--wax);font-size:9px;font-weight:700;color:var(--cF)">Hive</td>
+              ${dateHdrCells}
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
 // ═══════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════
 function rSettings() {
+  const connected = !!(DB.supaUrl && DB.supaKey);
   return `<div class="card">
     <div class="card-hd">Settings</div>
+
+    <div class="sec-lbl">PIN</div>
+    <p class="t-sm" style="margin-bottom:10px">Your PIN locks the app when you open it.</p>
+    <button class="btn btn-o btn-sm" onclick="changePin()">Change PIN</button>
+
+    <div class="divider"></div>
+
     <div class="sec-lbl">Supabase Database</div>
-    <p class="t-sm" style="margin-bottom:12px">Connect to sync across devices. Without it, data saves in this browser only.</p>
+    <p class="t-sm" style="margin-bottom:10px">Connect to sync across devices. Your data is saved locally too, so it works offline.</p>
+    ${connected ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px 12px;background:var(--cF-bg);border-radius:var(--rs);border:1px solid var(--cF)">
+      <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
+      <span class="t-sm" style="color:var(--cF);font-weight:600">Connected</span>
+      <button class="btn btn-g btn-xs" style="margin-left:auto" onclick="syncFromSupa().then(()=>{toast('Synced');render()})">Sync now</button>
+    </div>` : `<div style="padding:10px 12px;background:var(--wax);border-radius:var(--rs);margin-bottom:10px">
+      <span class="t-sm">Not connected — data saved in this browser only</span>
+    </div>`}
     <div class="field"><label>Project URL</label>
       <input type="url" id="sbu" placeholder="https://xxxx.supabase.co" value="${DB.supaUrl}"></div>
     <div class="field mt12"><label>Anon Public Key</label>
       <input type="password" id="sbk" placeholder="eyJ..." value="${DB.supaKey}"></div>
     <div class="btn-row mt12">
-      <button class="btn btn-p" onclick="saveSupa()">Save</button>
-      ${DB.supaUrl?`<button class="btn btn-d btn-sm" onclick="clrSupa()">Disconnect</button>`:''}
+      <button class="btn btn-p" onclick="saveSupa()">Save & connect</button>
+      ${connected?`<button class="btn btn-d btn-sm" onclick="clrSupa()">Disconnect</button>`:''}
     </div>
+
     <div class="divider"></div>
     <div class="sec-lbl">Data</div>
     <div class="btn-row">
@@ -1444,6 +1591,7 @@ function rSettings() {
       <input type="file" id="imp" accept=".json" style="display:none" onchange="impData(this)">
       <button class="btn btn-d btn-sm" onclick="clrAll()">Clear all data</button>
     </div>
+    <p class="t-xs mt8">Export saves a local backup. Import replaces all current data.</p>
   </div>`;
 }
 
@@ -1451,9 +1599,14 @@ function saveSupa() {
   DB.supaUrl = document.getElementById('sbu').value.trim();
   DB.supaKey = document.getElementById('sbk').value.trim();
   localStorage.setItem('qct_cfg', JSON.stringify({url:DB.supaUrl,key:DB.supaKey}));
-  toast('Saved');
+  SUPA = null; // force reinit with new credentials
+  toast('Connecting...');
+  syncFromSupa().then(ok => {
+    if (ok) { toast('Connected and synced'); render(); }
+    else toast('Could not connect — check your URL and key');
+  });
 }
-function clrSupa() { DB.supaUrl=''; DB.supaKey=''; localStorage.removeItem('qct_cfg'); toast('Disconnected'); render(); }
+function clrSupa() { DB.supaUrl=''; DB.supaKey=''; SUPA=null; localStorage.removeItem('qct_cfg'); toast('Disconnected'); render(); }
 function expData() {
   const b = new Blob([JSON.stringify({hives:DB.hives,grafts:DB.grafts},null,2)],{type:'application/json'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(b); a.download='qct.json'; a.click();
@@ -1475,10 +1628,199 @@ function toast(m) {
 }
 
 // ═══════════════════════════════════════════════════════
+// SUPABASE SYNC
+// ═══════════════════════════════════════════════════════
+let SUPA = null;
+
+async function initSupa() {
+  if (!DB.supaUrl || !DB.supaKey) return false;
+  if (SUPA) return true;
+  try {
+    if (!window.supabase) {
+      await new Promise((res,rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+        s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
+      });
+    }
+    SUPA = window.supabase.createClient(DB.supaUrl, DB.supaKey);
+    return true;
+  } catch(e) { console.error('Supabase init failed', e); return false; }
+}
+
+async function syncFromSupa() {
+  if (!await initSupa()) return false;
+  try {
+    const [{ data: hives, error: he }, { data: grafts, error: ge }] = await Promise.all([
+      SUPA.from('qct_hives').select('*'),
+      SUPA.from('qct_grafts').select('*')
+    ]);
+    if (he || ge) throw he || ge;
+    DB.hives  = hives.map(h => ({...h, log: h.log||[]}));
+    DB.grafts = grafts.map(g => ({
+      ...g, date: g.date,
+      movements: g.movements||[], finisher_records: g.finisher_records||[]
+    }));
+    save(); // cache locally too
+    document.getElementById('db-dot').className = 'db-dot ok';
+    return true;
+  } catch(e) {
+    console.error('Sync failed', e);
+    document.getElementById('db-dot').className = 'db-dot err';
+    return false;
+  }
+}
+
+async function pushToSupa() {
+  if (!await initSupa()) return;
+  try {
+    // Upsert all hives and grafts
+    const hiveRows = DB.hives.map(h => ({
+      id: h.id, type: h.type, name: h.name,
+      queen_status: h.queen_status||'unknown', strength: h.strength||3,
+      notes: h.notes||'', log: h.log||[]
+    }));
+    const graftRows = DB.grafts.map(g => ({
+      id: g.id, date: g.date, protocol: g.protocol,
+      breeder_id: g.breeder_id||null, starter_id: g.starter_id||null,
+      grafted: g.grafted||0, notes: g.notes||'',
+      movements: g.movements||[], finisher_records: g.finisher_records||[]
+    }));
+    const ops = [];
+    if (hiveRows.length)  ops.push(SUPA.from('qct_hives').upsert(hiveRows,  {onConflict:'id'}));
+    if (graftRows.length) ops.push(SUPA.from('qct_grafts').upsert(graftRows, {onConflict:'id'}));
+    if (ops.length) {
+      const results = await Promise.all(ops);
+      const errs = results.filter(r => r.error);
+      if (errs.length) throw errs[0].error;
+    }
+    document.getElementById('db-dot').className = 'db-dot ok';
+  } catch(e) {
+    console.error('Push failed', e);
+    document.getElementById('db-dot').className = 'db-dot err';
+    toast('Could not save to Supabase — stored locally');
+  }
+}
+
+// Wrap save() to also push to Supabase
+const _localSave = save;
+function save() {
+  _localSave();
+  if (DB.supaUrl && DB.supaKey) pushToSupa();
+}
+
+async function deleteFromSupa(table, id) {
+  if (!await initSupa()) return;
+  await SUPA.from(table).delete().eq('id', id);
+}
+
+// ═══════════════════════════════════════════════════════
+// PIN LOCK
+// ═══════════════════════════════════════════════════════
+let pinBuffer = '';
+let pinUnlocked = false;
+
+function getStoredPin() { return localStorage.getItem('qct_pin') || ''; }
+function savePin(p)     { localStorage.setItem('qct_pin', p); }
+
+function showPinScreen(mode) {
+  // mode: 'unlock' | 'setup'
+  const hasPin = !!getStoredPin();
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  // Build full-screen pin overlay
+  const div = document.createElement('div');
+  div.className = 'pin-screen';
+  div.id = 'pin-screen';
+  div.innerHTML = `
+    <div class="pin-title">Queen Cell Tracker</div>
+    <div class="pin-sub" id="pin-sub">${mode==='setup' ? 'Set a 4-digit PIN' : 'Enter your PIN'}</div>
+    <div class="pin-dots" id="pin-dots">
+      <div class="pin-dot" id="pd0"></div>
+      <div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div>
+      <div class="pin-dot" id="pd3"></div>
+    </div>
+    <div class="pin-error" id="pin-error"></div>
+    <div class="pin-pad">
+      ${[1,2,3,4,5,6,7,8,9,'',0,'del'].map(k => k==='' ? '<div></div>' :
+        `<button class="pin-key${k==='del'?' del':''}" onclick="pinPress('${k}')">${k==='del'?'&#9003;':k}</button>`
+      ).join('')}
+    </div>`;
+  document.body.appendChild(div);
+  pinBuffer = '';
+}
+
+function pinPress(key) {
+  const hasPin = !!getStoredPin();
+  if (key === 'del') {
+    pinBuffer = pinBuffer.slice(0, -1);
+  } else if (pinBuffer.length < 4) {
+    pinBuffer += key;
+  }
+  // Update dots
+  for (let i=0; i<4; i++) {
+    const d = document.getElementById('pd'+i);
+    if (d) d.classList.toggle('filled', i < pinBuffer.length);
+  }
+  if (pinBuffer.length === 4) {
+    setTimeout(() => {
+      const stored = getStoredPin();
+      if (!stored) {
+        // First time setup — save pin
+        savePin(pinBuffer);
+        removePinScreen();
+        toast('PIN set');
+      } else if (pinBuffer === stored) {
+        removePinScreen();
+      } else {
+        // Wrong PIN
+        const err = document.getElementById('pin-error');
+        if (err) err.textContent = 'Incorrect PIN';
+        pinBuffer = '';
+        for (let i=0; i<4; i++) {
+          const d = document.getElementById('pd'+i);
+          if (d) d.classList.remove('filled');
+        }
+      }
+    }, 120);
+  }
+}
+
+function removePinScreen() {
+  pinUnlocked = true;
+  const el = document.getElementById('pin-screen');
+  if (el) el.remove();
+  render();
+}
+
+function changePin() {
+  // Called from settings — clear stored pin and re-show setup
+  localStorage.removeItem('qct_pin');
+  pinUnlocked = false;
+  showPinScreen('setup');
+}
+
+// ═══════════════════════════════════════════════════════
 // BOOT
 // ═══════════════════════════════════════════════════════
-load();
-render();
+(async () => {
+  load();
+  // Show PIN screen first
+  const hasPin = !!getStoredPin();
+  if (hasPin) {
+    showPinScreen('unlock');
+  } else {
+    showPinScreen('setup');
+  }
+  // Sync from Supabase in background
+  if (DB.supaUrl && DB.supaKey) {
+    const ok = await syncFromSupa();
+    if (ok && pinUnlocked) render(); // refresh if already unlocked
+  }
+})();
 </script>
 </body>
 </html>
