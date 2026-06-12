@@ -281,7 +281,7 @@ textarea { resize:vertical; min-height:60px; }
 <body>
 
 <nav>
-  <div class="nav-logo">QCT</div>
+  <div class="nav-logo">QCT</div><div id="save-indicator" style="font-size:10px;color:var(--brown3);opacity:0;transition:opacity .3s"></div>
   <button class="active" onclick="go('dash')">Home</button>
   <button onclick="go('graft')">New Graft</button>
   <button onclick="go('hives')">Hives</button>
@@ -384,7 +384,13 @@ function pctBar(p) {
   </div>`;
 }
 
-function save() { localStorage.setItem('qct2', JSON.stringify({hives:DB.hives, grafts:DB.grafts})); }
+function save() {
+  try {
+    localStorage.setItem('qct2', JSON.stringify({hives:DB.hives, grafts:DB.grafts}));
+    const ind = document.getElementById('save-indicator');
+    if (ind) { ind.textContent = 'Saved'; ind.style.opacity='1'; setTimeout(()=>ind.style.opacity='0', 1200); }
+  } catch(e) { console.error('localStorage save failed:', e); toast('Could not save: ' + e.message); }
+}
 function load() {
   const r = localStorage.getItem('qct2');
   if (r) { const d = JSON.parse(r); DB.hives = d.hives||[]; DB.grafts = d.grafts||[]; }
@@ -1113,11 +1119,51 @@ function rHives() {
 }
 
 function addHive(type) {
-  const n = prompt('Name for new ' + type + '?',
-    type[0].toUpperCase() + (hByType(type).length + 1));
-  if (!n) return;
+  showAddHiveModal(type);
+}
+
+function showAddHiveModal(type) {
+  const existing = document.getElementById('add-hive-modal');
+  if (existing) existing.remove();
+  const defaultName = type[0].toUpperCase() + (hByType(type).length + 1);
+  const cc = type==='breeder'?'chip-B':type==='starter'?'chip-S':'chip-F';
+  const modal = document.createElement('div');
+  modal.id = 'add-hive-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(41,37,36,.7);display:flex;align-items:flex-end;justify-content:center;padding:0';
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:680px;box-shadow:0 -4px 24px rgba(0,0,0,.2)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        <span class="chip ${cc}">${type}</span>
+        <span style="font-size:15px;font-weight:700">Add new ${type}</span>
+        <button onclick="document.getElementById('add-hive-modal').remove()" 
+          style="margin-left:auto;background:none;border:none;font-size:20px;color:var(--brown3);cursor:pointer;padding:4px">×</button>
+      </div>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="new-hive-name" value="${defaultName}" 
+          style="font-size:16px" autocomplete="off">
+      </div>
+      <button class="btn btn-p btn-block mt12" onclick="confirmAddHive('${type}')">Add ${type}</button>
+    </div>`;
+  document.body.appendChild(modal);
+  // Focus and select the input
+  setTimeout(() => {
+    const inp = document.getElementById('new-hive-name');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+  // Close on backdrop tap
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function confirmAddHive(type) {
+  const inp = document.getElementById('new-hive-name');
+  const n = inp ? inp.value.trim() : '';
+  if (!n) { toast('Enter a name'); return; }
   DB.hives.push({ id:uid(), type, name:n, queen_status:'unknown', strength:3, notes:'', log:[] });
-  save(); toast(n + ' added'); render();
+  save();
+  document.getElementById('add-hive-modal').remove();
+  toast(n + ' added');
+  render();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1208,7 +1254,13 @@ function renderPanel(id) {
     </div>`;
 }
 
-function updH(id, k, v) { const h=hById(id); if(h){h[k]=v;save();} }
+let _updHTimer = null;
+function updH(id, k, v) {
+  const h = hById(id); if (!h) return;
+  h[k] = v;
+  clearTimeout(_updHTimer);
+  _updHTimer = setTimeout(() => save(), 600);
+}
 
 function addLog(id) {
   const h = hById(id); if (!h) return;
