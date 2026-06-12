@@ -370,16 +370,30 @@ function isPast(d)  { return d < today(); }
 function isToday(d) { return d === today(); }
 function hById(id)    { return DB.hives.find(h=>h.id===id); }
 function hByType(t)   { return DB.hives.filter(h=>h.type===t); }
+function numFromName(name) {
+  const m = name.match(/\d+/);
+  return m ? parseInt(m[0]) : 999;
+}
+
 function sortedFinishers(excludeGraftId) {
-  return hByType('finisher').slice().sort((a,b) => {
-    const sA = finisherStatus(a.id, excludeGraftId), sB = finisherStatus(b.id, excludeGraftId);
-    // Sort by availability first (available > capped > growing)
-    if (sA.priority !== sB.priority) return sB.priority - sA.priority;
-    // Then numerically by name
-    const numA = parseInt(a.name.replace(/[^0-9]/g,'')) || 0;
-    const numB = parseInt(b.name.replace(/[^0-9]/g,'')) || 0;
+  // Sort numerically first, then by availability within same number
+  // iOS native selects render in DOM order so we must get this right before building options
+  const sorted = hByType('finisher').slice().sort((a,b) => {
+    const numA = numFromName(a.name), numB = numFromName(b.name);
     if (numA !== numB) return numA - numB;
     return a.name.localeCompare(b.name);
+  });
+  // Then stable-sort by availability (available/capped first, growing last)
+  // Using a separate pass so numeric order is preserved within each availability group
+  return sorted.sort((a,b) => {
+    const sA = finisherStatus(a.id, excludeGraftId);
+    const sB = finisherStatus(b.id, excludeGraftId);
+    // Only demote truly unavailable (growing other graft) to bottom
+    const unavailA = !sA.available ? 1 : 0;
+    const unavailB = !sB.available ? 1 : 0;
+    if (unavailA !== unavailB) return unavailA - unavailB;
+    // Within same availability, keep numeric order
+    return numFromName(a.name) - numFromName(b.name);
   });
 }
 
@@ -570,6 +584,11 @@ function starterCellsOut(g, starter_id) {
     const src = (r.sources||[]).find(s => s.starter_id === starter_id);
     return a + (src ? src.count : 0);
   }, 0);
+}
+function starterCellsRemaining(g, starter_id) {
+  const inn = starterCellsIn(g, starter_id);
+  const out = starterCellsOut(g, starter_id);
+  return Math.max(0, inn - out);
 }
 function starterCellsIn(g, starter_id) {
   const sa = (g.starter_allocations||[]).find(s => s.starter_id === starter_id);
@@ -1170,12 +1189,18 @@ function renderDay1Rows() {
       <div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>
       ${starters.map((S,si) => {
         const src = row.sources.find(s=>s.starter_id===S.id)||{count:''};
+        const remaining = g ? starterCellsRemaining(g, S.id) : 0;
+        const alreadyAssigned = day1Rows.slice(0,ri).reduce((a,r2) => {
+          const s2 = r2.sources.find(x=>x.starter_id===S.id);
+          return a + (s2?s2.count||0:0);
+        }, 0);
+        const stillAvail = remaining - alreadyAssigned;
         return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <span class="chip chip-S" style="min-width:48px">${S.name}</span>
           <input type="number" min="0" placeholder="0" value="${src.count||''}"
             style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
             oninput="setDay1Source(${ri},'${S.id}',+this.value)">
-          <span class="t-xs">cells</span>
+          <span class="t-xs" style="color:${stillAvail>0?'var(--amber)':'var(--brown3)'};font-weight:${stillAvail>0?'700':'400'}">${stillAvail > 0 ? stillAvail + ' left' : remaining > 0 ? 'all assigned' : ''}</span>
         </div>`;
       }).join('')}
     </div>`).join('');
@@ -1258,13 +1283,15 @@ function addExtraFinRow(gid) {
       <button class="btn btn-d btn-xs" onclick="document.getElementById('${rowId}').remove()">×</button>
     </div>
     <div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>
-    ${starters.map(S=>`
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+    ${starters.map(S=>{
+      const remaining = starterCellsRemaining(g, S.id);
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span class="chip chip-S" style="min-width:48px">${S.name}</span>
         <input type="number" id="${rowId}-src-${S.id}" min="0" placeholder="0"
           style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)">
-        <span class="t-xs">cells</span>
-      </div>`).join('')}
+        <span class="t-xs" style="color:${remaining>0?'var(--amber)':'var(--brown3)'};font-weight:${remaining>0?'700':'400'}">${remaining > 0 ? remaining + ' left' : 'all assigned'}</span>
+      </div>`;
+    }).join('')}
     <button class="btn btn-p btn-sm btn-block mt8" onclick="saveExtraFin('${gid}','${rowId}',${JSON.stringify(starters.map(s=>s.id))})">Save</button>`;
   container.appendChild(div);
 }
