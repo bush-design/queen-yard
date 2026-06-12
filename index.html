@@ -370,6 +370,73 @@ function isPast(d)  { return d < today(); }
 function isToday(d) { return d === today(); }
 function hById(id)    { return DB.hives.find(h=>h.id===id); }
 function hByType(t)   { return DB.hives.filter(h=>h.type===t); }
+function sortedFinishers(excludeGraftId) {
+  return hByType('finisher').slice().sort((a,b) => {
+    const sA = finisherStatus(a.id, excludeGraftId), sB = finisherStatus(b.id, excludeGraftId);
+    // Sort by availability first (available > capped > growing)
+    if (sA.priority !== sB.priority) return sB.priority - sA.priority;
+    // Then numerically by name
+    const numA = parseInt(a.name.replace(/[^0-9]/g,'')) || 0;
+    const numB = parseInt(b.name.replace(/[^0-9]/g,'')) || 0;
+    if (numA !== numB) return numA - numB;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function finisherStatus(finisherId, excludeGraftId) {
+  // Find all active graft batches that have this finisher
+  // Returns { available: bool, label: string, priority: number (lower = more available) }
+  // excludeGraftId: ignore this graft when checking (used when adding more cells to same graft)
+  const td = today();
+  let worstStatus = null; // track the most restrictive active batch
+
+  DB.grafts.forEach(g => {
+    if (excludeGraftId && g.id === excludeGraftId) return; // same graft — always OK
+    const fr = (g.finisher_records||[]).find(r => r.finisher_id === finisherId);
+    if (!fr) return;
+
+    const d = dayjs(g.date);
+    const cappedDate  = fr.check_dates?.capped  || d.add(5,'day').format('YYYY-MM-DD');
+    const outDate     = fr.check_dates?.emerged  || d.add(10,'day').format('YYYY-MM-DD');
+
+    // Ignore batches that are fully out
+    if (outDate < td) return;
+
+    const daysToCaped  = dayjs(cappedDate).diff(dayjs(td), 'day');
+    const daysToCapped = daysToCaped; // cells still growing
+    const daysSinceCapped = dayjs(td).diff(dayjs(cappedDate), 'day');
+
+    if (cappedDate > td) {
+      // Still growing — unavailable
+      const status = { available: false, label: `Growing — capped in ${daysToCapped}d`, priority: 0 };
+      if (!worstStatus || status.priority < worstStatus.priority) worstStatus = status;
+    } else {
+      // Capped or past capped
+      const status = daysSinceCapped === 0
+        ? { available: true, label: 'Capped today', priority: 2 }
+        : daysSinceCapped === 1
+        ? { available: true, label: 'Capped yesterday', priority: 2 }
+        : { available: true, label: `Capped ${daysSinceCapped}d ago`, priority: 3 };
+      if (!worstStatus || status.priority < worstStatus.priority) worstStatus = status;
+    }
+  });
+
+  if (!worstStatus) return { available: true, label: 'Available', priority: 4 };
+  return worstStatus;
+}
+
+function finisherOptionLabel(h, excludeGraftId) {
+  const s = finisherStatus(h.id, excludeGraftId);
+  const icon = s.available ? (s.label === 'Available' ? '' : '+ ') : '— ';
+  return `${h.name}  —  ${icon}${s.label}`;
+}
+
+function finisherOptionStyle(h, excludeGraftId) {
+  const s = finisherStatus(h.id, excludeGraftId);
+  if (!s.available) return 'color:#dc2626';            // red — growing (other graft)
+  if (s.label === 'Available') return 'color:#15803d'; // green — empty
+  return 'color:#d97706';                              // amber — capped, or same graft (safe)
+}
 function gById(id)    { return DB.grafts.find(g=>g.id===id); }
 
 function pct(num, denom) {
@@ -486,6 +553,11 @@ function render() {
 function totalEmerged(g) {
   return (g.finisher_records||[]).reduce((a,r) => a + (r.emerged||0), 0);
 }
+function totalGrafted(g) {
+  // Use sum of starter allocations as the true grafted count
+  const fromStarters = (g.starter_allocations||[]).reduce((a,sa) => a + (sa.cells_in||0), 0);
+  return fromStarters || (g.grafted||0);
+}
 function totalMated(g) {
   return (g.finisher_records||[]).reduce((a,r) => a + (r.mated||0), 0);
 }
@@ -549,10 +621,10 @@ function nextDue(g) {
 // ═══════════════════════════════════════════════════════
 function rDash() {
   const G = DB.grafts;
-  const totalGrafted = G.reduce((a,g) => a + (g.grafted||0), 0);
+  const tGraftedSeason = G.reduce((a,g) => a + totalGrafted(g), 0);
   const totalEm = G.reduce((a,g) => a + totalEmerged(g), 0);
   const totalMt = G.reduce((a,g) => a + totalMated(g), 0);
-  const seasonPct = pct(totalEm, totalGrafted);
+  const seasonPct = pct(totalEm, tGraftedSeason);
 
   const due = [];
   G.forEach(g => {
@@ -592,7 +664,7 @@ function rDash() {
     ${dueBanner}
     <div class="stats-row">
       <div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div>
-      <div class="stat"><div class="n">${totalGrafted}</div><div class="l">Grafted</div></div>
+      <div class="stat"><div class="n">${tGraftedSeason}</div><div class="l">Grafted</div></div>
       <div class="stat"><div class="n">${totalEm}</div><div class="l">Emerged</div></div>
       <div class="stat"><div class="n">${seasonPct !== null ? seasonPct+'%' : '—'}</div><div class="l">Season %</div></div>
     </div>
@@ -639,8 +711,8 @@ function rGraftCard(g) {
   const isA = g.protocol === 'autumn';
 
   const tEm  = totalEmerged(g);
-  const tGr  = g.grafted || 0;
-  const gPct = pct(tEm, tGr);
+  const tGr  = totalGrafted(g);
+  const gPct = pct(tEm, tGr);  // tGr already uses totalGrafted
 
   // Timeline dots
   const stages = stagesFor(g).slice(1);
@@ -803,7 +875,7 @@ function rGraftForm() {
       <label>Finisher hive (acts as starter + finisher)</label>
       <select onchange="graftForm.autumn_finisher_id=this.value">
         <option value="">Select...</option>
-        ${finishers.map(h=>`<option value="${h.id}" ${f.autumn_finisher_id===h.id?'selected':''}>${h.name}</option>`).join('')}
+        ${sortedFinishers().map(h=>`<option value="${h.id}" ${f.autumn_finisher_id===h.id?'selected':''} style="${finisherOptionStyle(h)}">${finisherOptionLabel(h)}</option>`).join('')}
       </select>
     </div>` : '';
 
@@ -829,7 +901,7 @@ function rGraftForm() {
         <input type="date" value="${f.date}" oninput="graftForm.date=this.value;renderG()">
       </div>
       <div class="field">
-        <label>Total Cells Grafted</label>
+        <label>Total Cells Grafted (auto-totals from starters below)</label>
         <input type="number" min="0" placeholder="e.g. 135" value="${f.grafted||''}"
           oninput="graftForm.grafted=+this.value">
       </div>
@@ -942,7 +1014,8 @@ function openRecordPanel(id) {
   const isA = g.protocol==='autumn';
   const tEm = totalEmerged(g), tMt = totalMated(g);
   const tIn  = totalCellsInFinishers(g);
-  const gPct = pct(tEm, g.grafted), layPct = pct(tMt, g.grafted);
+  const _tGr = totalGrafted(g);
+  const gPct = pct(tEm, _tGr), layPct = pct(tMt, _tGr);
 
   document.getElementById('panel-title').innerHTML =
     `${fmtF(g.date)} — ${B?B.name:'?'}`;
@@ -1010,19 +1083,35 @@ function openRecordPanel(id) {
             onchange="updateFinRec('${id}',${i},'mated',this.value===''?null:+this.value)">
         </div>
       </div>
-      ${!isA?`<div class="t-xs mt8" style="display:flex;gap:12px;flex-wrap:wrap">
-        <label>Capped: <input type="date" style="display:inline;width:auto;padding:3px 6px;font-size:12px"
-          value="${fr.check_dates?.capped||''}" onchange="updateFinRecDate('${id}',${i},'capped',this.value)"></label>
-        <label>Emerged: <input type="date" style="display:inline;width:auto;padding:3px 6px;font-size:12px"
-          value="${fr.check_dates?.emerged||''}" onchange="updateFinRecDate('${id}',${i},'emerged',this.value)"></label>
-      </div>`:''}
+      ${!isA?(()=>{
+        const d = dayjs(g.date);
+        const estCapped  = d.add(5,'day').format('YYYY-MM-DD');
+        const estEmerged = d.add(10,'day').format('YYYY-MM-DD');
+        const actCapped  = fr.check_dates?.capped  || estCapped;
+        const actEmerged = fr.check_dates?.emerged || estEmerged;
+        return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px;background:var(--wax);border-radius:var(--rs)">
+          <div class="field" style="flex:1;min-width:140px">
+            <label>Capped date <span style="font-weight:400;color:var(--brown3)">(est. ${fmt(estCapped)})</span></label>
+            <input type="date" style="font-size:13px;padding:7px 10px"
+              value="${actCapped}"
+              onchange="updateFinRecDate('${id}',${i},'capped',this.value)">
+          </div>
+          <div class="field" style="flex:1;min-width:140px">
+            <label>Out date <span style="font-weight:400;color:var(--brown3)">(est. ${fmt(estEmerged)})</span></label>
+            <input type="date" style="font-size:13px;padding:7px 10px"
+              value="${actEmerged}"
+              onchange="updateFinRecDate('${id}',${i},'emerged',this.value)">
+          </div>
+        </div>`;
+      })():''}
     </div>`;
   }).join('');
 
   // Add more finishers (after initial assignment done)
   const addMoreSection = frecs.length>0 ? `
     <div style="background:var(--wax);border-radius:var(--rs);padding:12px;margin-top:8px">
-      <div class="sec-lbl">Add another finisher</div>
+      <div class="sec-lbl">Add or top up a finisher</div>
+      <p class="t-xs" style="margin-bottom:8px">Picking a finisher already in this batch will add to its total — same stage, counted together.</p>
       <div id="extra-fin-rows"></div>
       <button class="btn btn-add btn-sm btn-block mt8" onclick="addExtraFinRow('${id}')">+ Add finisher assignment</button>
     </div>` : '';
@@ -1031,7 +1120,7 @@ function openRecordPanel(id) {
     <div class="card">
       <div class="card-hd">Summary</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
-        <div class="fin-stat"><div class="fsn">${g.grafted||0}</div><div class="fsl">Grafted</div></div>
+        <div class="fin-stat"><div class="fsn">${totalGrafted(g)}</div><div class="fsl">Grafted</div></div>
         <div class="fin-stat"><div class="fsn">${tIn}</div><div class="fsl">In finishers</div></div>
         <div class="fin-stat"><div class="fsn">${tEm}</div><div class="fsl">Emerged</div></div>
       </div>
@@ -1074,7 +1163,7 @@ function renderDay1Rows() {
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
           onchange="day1Rows[${ri}].finisher_id=this.value">
           <option value="">Select finisher...</option>
-          ${finishers.map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''}>${f.name}</option>`).join('')}
+          ${sortedFinishers(panelGraftId).map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''} style="${finisherOptionStyle(f,panelGraftId)}">${finisherOptionLabel(f,panelGraftId)}</option>`).join('')}
         </select>
         <button class="btn btn-d btn-xs" onclick="removeDay1Row(${ri})">×</button>
       </div>
@@ -1123,11 +1212,16 @@ function saveDay1(gid) {
       });
     } else {
       if (!g.finisher_records) g.finisher_records = [];
+      const _d = dayjs(g.date);
       g.finisher_records.push({
         finisher_id: row.finisher_id,
         cells_received: totalIn,
         sources: row.sources.filter(s=>s.count>0).map(s=>({...s})),
-        capped:null, emerged:null, mated:null, check_dates:{}
+        capped:null, emerged:null, mated:null,
+        check_dates:{
+          capped:  _d.add(5,'day').format('YYYY-MM-DD'),
+          emerged: _d.add(10,'day').format('YYYY-MM-DD')
+        }
       });
     }
     // Update starter cells_out
@@ -1159,7 +1253,7 @@ function addExtraFinRow(gid) {
       <span class="chip chip-F">Finisher</span>
       <select id="${rowId}-fin" style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)">
         <option value="">Select finisher...</option>
-        ${finishers.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}
+        ${sortedFinishers(gid).map(f=>`<option value="${f.id}" style="${finisherOptionStyle(f,gid)}">${finisherOptionLabel(f,gid)}</option>`).join('')}
       </select>
       <button class="btn btn-d btn-xs" onclick="document.getElementById('${rowId}').remove()">×</button>
     </div>
@@ -1195,8 +1289,14 @@ function saveExtraFin(gid, rowId, starterIds) {
     });
   } else {
     if (!g.finisher_records) g.finisher_records=[];
+    const _d2 = dayjs(g.date);
     g.finisher_records.push({ finisher_id:finId, cells_received:totalIn, sources,
-      capped:null, emerged:null, mated:null, check_dates:{} });
+      capped:null, emerged:null, mated:null,
+      check_dates:{
+        capped:  _d2.add(5,'day').format('YYYY-MM-DD'),
+        emerged: _d2.add(10,'day').format('YYYY-MM-DD')
+      }
+    });
   }
   sources.forEach(src=>{
     const sa=(g.starter_allocations||[]).find(s=>s.starter_id===src.starter_id);
@@ -1464,7 +1564,7 @@ function rStats() {
   const G = DB.grafts;
   if (!G.length) return `<div class="card"><div class="empty"><div class="ei">-</div><p>No data yet.</p></div></div>`;
 
-  const tGr = G.reduce((a,g) => a+(g.grafted||0), 0);
+  const tGr = G.reduce((a,g) => a+totalGrafted(g), 0);
   const tEm = G.reduce((a,g) => a+totalEmerged(g), 0);
   const tMt = G.reduce((a,g) => a+totalMated(g), 0);
   const breedPct  = pct(tEm, tGr);
@@ -1475,7 +1575,7 @@ function rStats() {
   G.forEach(g => {
     const wk = dayjs(g.date).startOf('week').format('YYYY-MM-DD');
     if (!byWeek[wk]) byWeek[wk] = { grafted:0, emerged:0, mated:0, count:0 };
-    byWeek[wk].grafted += g.grafted||0;
+    byWeek[wk].grafted += totalGrafted(g);
     byWeek[wk].emerged += totalEmerged(g);
     byWeek[wk].mated   += totalMated(g);
     byWeek[wk].count++;
@@ -1545,7 +1645,7 @@ function rStats() {
   const breederStats = {};
   G.forEach(g => {
     if (!breederStats[g.breeder_id]) breederStats[g.breeder_id] = { grafted:0, emerged:0 };
-    breederStats[g.breeder_id].grafted += g.grafted||0;
+    breederStats[g.breeder_id].grafted += totalGrafted(g);
     breederStats[g.breeder_id].emerged += totalEmerged(g);
   });
 
@@ -1646,13 +1746,13 @@ function rStats() {
     <div class="card">
       <div class="card-hd">Every Graft</div>
       ${G.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(g => {
-        const B=hById(g.breeder_id), em=totalEmerged(g), p=pct(em,g.grafted);
+        const B=hById(g.breeder_id), em=totalEmerged(g), p=pct(em,totalGrafted(g));
         const starters=(g.starter_allocations||[]).map(sa=>hById(sa.starter_id)?.name||'?').join(', ');
         return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--wax2);flex-wrap:wrap">
           <span style="font-size:13px;font-weight:700;min-width:90px">${fmtF(g.date)}</span>
           <span class="chip chip-B" style="font-size:10px">${B?B.name:'?'}</span>
           <span class="chip ${g.protocol==='autumn'?'chip-A':'chip-std'}" style="font-size:10px">${g.protocol}</span>
-          <span class="t-xs">${g.grafted||0} grafted → ${em} emerged</span>
+          <span class="t-xs">${totalGrafted(g)} grafted → ${em} emerged</span>
           ${p!==null?`<span class="chip ${p>=70?'chip-ok':p>=40?'chip-warn':'chip-due'}" style="margin-left:auto">${p}%</span>`
                     :`<span style="margin-left:auto" class="t-xs">—</span>`}
         </div>`;
@@ -1682,7 +1782,29 @@ function rCalendar() {
 
   // Build rows: one per finisher per graft
   const rows = [];
-  G.slice().sort((a,b) => a.date.localeCompare(b.date)).forEach(g => {
+  // Sort: active batches (out date today or future) first, newest first within each group
+  // Completed (out date passed) sink to bottom, sorted oldest first so most recent completed is nearest top
+  function graftOutDate(g) {
+    const d = dayjs(g.date);
+    return g.protocol === 'autumn'
+      ? d.add(2,'day').format('YYYY-MM-DD')
+      : d.add(10,'day').format('YYYY-MM-DD');
+  }
+  function isCompleted(g) { return graftOutDate(g) < today(); }
+
+  const sortedG = G.slice().sort((a,b) => {
+    const aCom = isCompleted(a), bCom = isCompleted(b);
+    if (aCom !== bCom) return aCom ? 1 : -1;  // active first
+    if (!aCom) return b.date.localeCompare(a.date);  // active: newest first
+    return a.date.localeCompare(b.date);  // completed: oldest first (most recent completed near top)
+  });
+
+  let _shownCompletedHeader = false;
+  sortedG.forEach(g => {
+    if (isCompleted(g) && !_shownCompletedHeader) {
+      _shownCompletedHeader = true;
+      tableRows += `<tr><td colspan="${2 + CAL_DAYS}" style="padding:4px 8px;background:var(--brown2);color:var(--brown3);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Completed</td></tr>`;
+    }
     const B = hById(g.breeder_id), S = hById(g.starter_id);
     const frecs = g.finisher_records || [];
     const d = dayjs(g.date);
@@ -1791,7 +1913,8 @@ function rCalendar() {
       return `<td style="width:${COL_W}px;min-width:${COL_W}px;padding:1px 0;text-align:center;background:${bg};border:0.5px solid var(--wax2);${topBorder}">${inner}</td>`;
     }).join('');
 
-    tableRows += `<tr onclick="openRecordPanel('${g.id}')" style="cursor:pointer">${labelCell}${dateCells}</tr>`;
+    const rowOpacity = isCompleted(g) ? 'opacity:0.4' : '';
+    tableRows += `<tr onclick="openRecordPanel('${g.id}')" style="cursor:pointer;${rowOpacity}">${labelCell}${dateCells}</tr>`;
   });
 
   // Today line (we use sticky column highlight instead)
