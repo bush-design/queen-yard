@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Queen Cell Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root {
   --amber:#D97706; --honey:#F59E0B; --gold:#FCD34D; --wax:#FEF3C7; --wax2:#FDE68A;
@@ -1629,92 +1628,121 @@ function toast(m) {
 }
 
 // ═══════════════════════════════════════════════════════
-// SUPABASE SYNC
+// SUPABASE SYNC — uses fetch() directly, no library needed
+// Works in browser AND iOS home screen standalone mode
 // ═══════════════════════════════════════════════════════
 let SUPA = null;
 
-async function initSupa() {
-  if (!DB.supaUrl || !DB.supaKey) return false;
-  if (SUPA) return true;
-  if (!window.supabase) {
-    toast('Supabase library not loaded — check your connection and reload');
-    return false;
+function supaHeaders() {
+  return {
+    'apikey': DB.supaKey,
+    'Authorization': 'Bearer ' + DB.supaKey,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+}
+
+function supaUrl(table, params) {
+  let url = DB.supaUrl.replace(/\/$/, '') + '/rest/v1/' + table;
+  if (params) url += '?' + params;
+  return url;
+}
+
+async function supaGet(table, params) {
+  const res = await fetch(supaUrl(table, params), {
+    method: 'GET',
+    headers: { ...supaHeaders(), 'Accept': 'application/json' }
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(res.status + ': ' + err);
   }
-  try {
-    SUPA = window.supabase.createClient(DB.supaUrl, DB.supaKey);
-    return true;
-  } catch(e) {
-    console.error('Supabase createClient failed', e);
-    toast('Supabase error: ' + e.message);
-    return false;
+  return res.json();
+}
+
+async function supaUpsert(table, rows) {
+  if (!rows.length) return;
+  const res = await fetch(supaUrl(table), {
+    method: 'POST',
+    headers: { ...supaHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(res.status + ': ' + err);
   }
 }
 
+async function supaDelete(table, id) {
+  const res = await fetch(supaUrl(table, 'id=eq.' + encodeURIComponent(id)), {
+    method: 'DELETE',
+    headers: supaHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('Delete failed:', err);
+  }
+}
+
+function initSupa() {
+  return !!(DB.supaUrl && DB.supaKey);
+}
+
 async function syncFromSupa() {
-  if (!await initSupa()) return false;
+  if (!initSupa()) return false;
   try {
-    const [hivesRes, graftsRes] = await Promise.all([
-      SUPA.from('qct_hives').select('*'),
-      SUPA.from('qct_grafts').select('*')
+    const [hives, grafts] = await Promise.all([
+      supaGet('qct_hives', 'select=*'),
+      supaGet('qct_grafts', 'select=*')
     ]);
-    if (hivesRes.error) {
-      const msg = hivesRes.error.message || JSON.stringify(hivesRes.error);
-      toast('Supabase error: ' + msg);
-      console.error('hives error:', hivesRes.error);
-      document.getElementById('db-dot').className = 'db-dot err';
-      return false;
-    }
-    if (graftsRes.error) {
-      const msg = graftsRes.error.message || JSON.stringify(graftsRes.error);
-      toast('Supabase error: ' + msg);
-      console.error('grafts error:', graftsRes.error);
-      document.getElementById('db-dot').className = 'db-dot err';
-      return false;
-    }
-    DB.hives  = (hivesRes.data||[]).map(h => ({...h, log: h.log||[]}));
-    DB.grafts = (graftsRes.data||[]).map(g => ({
+    DB.hives  = hives.map(h => ({...h, log: h.log||[]}));
+    DB.grafts = grafts.map(g => ({
       ...g, movements: g.movements||[], finisher_records: g.finisher_records||[]
     }));
     _localSave();
-    document.getElementById('db-dot').className = 'db-dot ok';
+    const dot = document.getElementById('db-dot');
+    if (dot) dot.className = 'db-dot ok';
     return true;
   } catch(e) {
-    console.error('Sync failed', e);
-    toast('Sync failed: ' + (e.message||e));
-    document.getElementById('db-dot').className = 'db-dot err';
+    console.error('Sync failed:', e);
+    toast('Sync error: ' + e.message);
+    const dot = document.getElementById('db-dot');
+    if (dot) dot.className = 'db-dot err';
     return false;
   }
 }
 
 async function pushToSupa() {
-  if (!await initSupa()) return;
+  if (!initSupa()) return;
   try {
-    // Upsert all hives and grafts
     const hiveRows = DB.hives.map(h => ({
-      id: h.id, type: h.type, name: h.name,
-      queen_status: h.queen_status||'unknown', strength: h.strength||3,
-      notes: h.notes||'', log: h.log||[]
+      id:h.id, type:h.type, name:h.name,
+      queen_status:h.queen_status||'unknown', strength:h.strength||3,
+      notes:h.notes||'', log:h.log||[]
     }));
     const graftRows = DB.grafts.map(g => ({
-      id: g.id, date: g.date, protocol: g.protocol,
-      breeder_id: g.breeder_id||null, starter_id: g.starter_id||null,
-      grafted: g.grafted||0, notes: g.notes||'',
-      movements: g.movements||[], finisher_records: g.finisher_records||[]
+      id:g.id, date:g.date, protocol:g.protocol,
+      breeder_id:g.breeder_id||null, starter_id:g.starter_id||null,
+      grafted:g.grafted||0, notes:g.notes||'',
+      movements:g.movements||[], finisher_records:g.finisher_records||[]
     }));
-    const ops = [];
-    if (hiveRows.length)  ops.push(SUPA.from('qct_hives').upsert(hiveRows,  {onConflict:'id'}));
-    if (graftRows.length) ops.push(SUPA.from('qct_grafts').upsert(graftRows, {onConflict:'id'}));
-    if (ops.length) {
-      const results = await Promise.all(ops);
-      const errs = results.filter(r => r.error);
-      if (errs.length) throw errs[0].error;
-    }
-    document.getElementById('db-dot').className = 'db-dot ok';
+    await Promise.all([
+      supaUpsert('qct_hives', hiveRows),
+      supaUpsert('qct_grafts', graftRows)
+    ]);
+    const dot = document.getElementById('db-dot');
+    if (dot) dot.className = 'db-dot ok';
   } catch(e) {
-    console.error('Push failed', e);
-    document.getElementById('db-dot').className = 'db-dot err';
-    toast('Could not save to Supabase — stored locally');
+    console.error('Push failed:', e);
+    toast('Could not save to Supabase: ' + e.message);
+    const dot = document.getElementById('db-dot');
+    if (dot) dot.className = 'db-dot err';
   }
+}
+
+async function deleteFromSupa(table, id) {
+  if (!initSupa()) return;
+  await supaDelete(table, id);
 }
 
 // Wrap save() to also push to Supabase
@@ -1723,12 +1751,6 @@ function save() {
   _localSave();
   if (DB.supaUrl && DB.supaKey) pushToSupa();
 }
-
-async function deleteFromSupa(table, id) {
-  if (!await initSupa()) return;
-  await SUPA.from(table).delete().eq('id', id);
-}
-
 // ═══════════════════════════════════════════════════════
 // PIN LOCK
 // ═══════════════════════════════════════════════════════
