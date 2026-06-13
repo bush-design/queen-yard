@@ -360,7 +360,7 @@ const LOG_TYPES = [
 ];
 
 let DB = { hives:[], grafts:[], supaUrl:'', supaKey:'' };
-let page = 'dash', hvTab = 'all', panelId = null, graftForm = null;
+let page = 'dash', hvTab = 'all', panelId = null, graftForm = null, bulkLogState = null;
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function today() { return dayjs().format('YYYY-MM-DD'); }
@@ -708,14 +708,23 @@ function rApiarySummary() {
     const hs = hByType(type); if (!hs.length) return;
     const lbl = type==='breeder'?'Breeders':type==='starter'?'Starters':'Finishers';
     const cc  = type==='breeder'?'chip-B':type==='starter'?'chip-S':'chip-F';
-    rows.push(`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
-      <span class="chip ${cc}">${lbl}</span>
-      ${hs.map(h => {
-        const dc = h.queen_status==='queenright'?'qs-green':h.queen_status==='queenless'?'qs-amber':h.queen_status==='virgin'?'qs-purple':'';
-        return `<button class="btn btn-xs btn-g" onclick="openPanel('${h.id}')" style="display:flex;align-items:center;gap:4px">
-          <span class="qs-dot ${dc}"></span>${h.name}</button>`;
-      }).join('')}
-    </div>`);
+    const expandId = 'apiary-expand-'+type;
+    rows.push(`
+      <div style="border:1px solid var(--wax2);border-radius:var(--rs);margin-bottom:6px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;background:var(--cream)"
+          onclick="document.getElementById('${expandId}').style.display=document.getElementById('${expandId}').style.display==='none'?'flex':'none';this.querySelector('.apiary-chevron').textContent=document.getElementById('${expandId}').style.display==='none'?'›':'⌄'">
+          <span class="chip ${cc}">${lbl}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--brown2)">${hs.length} hive${hs.length!==1?'s':''}</span>
+          <span class="apiary-chevron" style="margin-left:auto;color:var(--brown3);font-size:16px">›</span>
+        </div>
+        <div id="${expandId}" style="display:none;flex-wrap:wrap;gap:6px;padding:8px 12px;background:var(--white);border-top:1px solid var(--wax2)">
+          ${hs.map(h => {
+            const dc = h.queen_status==='queenright'?'qs-green':h.queen_status==='queenless'?'qs-amber':h.queen_status==='virgin'?'qs-purple':'';
+            return `<button class="btn btn-xs btn-g" onclick="openPanel('${h.id}')" style="display:flex;align-items:center;gap:4px">
+              <span class="qs-dot ${dc}"></span>${h.name}</button>`;
+          }).join('')}
+        </div>
+      </div>`);
   });
   return rows.join('');
 }
@@ -920,11 +929,31 @@ function rGraftForm() {
         <input type="date" value="${f.date}" oninput="graftForm.date=this.value;renderG()">
       </div>
       <div class="field">
-        <label>Total Cells Grafted (auto-totals from starters below)</label>
+        <label>Cells Grafted</label>
         <input type="number" min="0" placeholder="e.g. 135" value="${f.grafted||''}"
           oninput="graftForm.grafted=+this.value">
       </div>
     </div>
+    <p class="t-xs mt8" style="color:var(--brown3)">Cells grafted auto-totals from starters once you add them below.</p>
+
+    ${(()=>{
+      const gd = dayjs(f.date);
+      const outDate = isA ? gd.add(2,'day') : gd.add(10,'day');
+      const cappedDate = isA ? null : gd.add(5,'day');
+      const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const outDay = dayNames[outDate.day()];
+      const isWeekend = outDate.day()===0||outDate.day()===6;
+      const cappedDay = cappedDate ? dayNames[cappedDate.day()] : null;
+      return `<div style="background:var(--wax);border-radius:var(--rs);padding:12px 14px;margin-top:12px">
+        ${!isA?`<div style="margin-bottom:6px;font-size:13px;color:var(--brown2)">
+          Capped: <strong>${cappedDay} ${cappedDate.format('D MMM')}</strong>
+        </div>`:''}
+        <div style="font-size:15px;color:var(--brown)">
+          Cells out: <strong style="font-size:18px;color:${isWeekend?'var(--red)':'var(--amber)'}">${outDay} ${outDate.format('D MMM')}</strong>
+          ${isWeekend?`<span style="font-size:11px;color:var(--red);margin-left:6px;font-weight:700">Weekend</span>`:''}
+        </div>
+      </div>`;
+    })()}
 
     <div class="field mt12">
       <label>Breeder</label>
@@ -1367,6 +1396,137 @@ function logMovement(gid) {
 // ═══════════════════════════════════════════════════════
 // HIVES PAGE
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// BULK LOG
+// ═══════════════════════════════════════════════════════
+function openBulkLog() {
+  bulkLogState = {
+    date: today(),
+    types: [],
+    note: '',
+    selectedHives: new Set()
+  };
+  showBulkLogPanel();
+}
+
+function showBulkLogPanel() {
+  const s = bulkLogState;
+  const panel = document.getElementById('hive-panel');
+  document.getElementById('panel-title').innerHTML = 'Bulk Log Entry';
+  document.querySelector('.panel .btn-d').style.display = 'none';
+
+  const typeChecks = LOG_TYPES.map(t => `
+    <label class="log-check">
+      <input type="checkbox" name="bulk-type" value="${t.value}" ${s.types.includes(t.value)?'checked':''}>
+      <span>${t.label}</span>
+    </label>`).join('');
+
+  const hiveGroups = ['breeder','starter','finisher'].map(type => {
+    const hs = hByType(type); if (!hs.length) return '';
+    const lbl = type==='breeder'?'Breeders':type==='starter'?'Starters':'Finishers';
+    const cc  = type==='breeder'?'chip-B':type==='starter'?'chip-S':'chip-F';
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="chip ${cc}">${lbl}</span>
+        <button class="btn btn-xs btn-g" onclick="bulkSelectAll('${type}')">Select all</button>
+        <button class="btn btn-xs btn-g" onclick="bulkDeselectAll('${type}')">Clear</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${hs.map(h => `
+          <button id="bulk-hive-${h.id}"
+            class="btn btn-xs ${s.selectedHives.has(h.id)?'btn-p':'btn-g'}"
+            onclick="bulkToggleHive('${h.id}')">${h.name}</button>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('panel-body').innerHTML = `
+    <div class="card">
+      <div class="card-hd">Date & Actions</div>
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="bulk-date" value="${s.date}"
+          oninput="bulkLogState.date=this.value">
+      </div>
+      <div class="field mt12">
+        <label>Actions (select all that apply)</label>
+        <div class="log-check-grid">${typeChecks}</div>
+      </div>
+      <div class="field mt12">
+        <label>Comment (applies to all selected hives)</label>
+        <textarea id="bulk-note" placeholder="e.g. Fed 1L sugar syrup, strong colony...">${s.note}</textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">Select Hives
+        <span class="sub">
+          <button class="btn btn-xs btn-g" onclick="bulkSelectAll('all')">All hives</button>
+          <button class="btn btn-xs btn-g" style="margin-left:4px" onclick="bulkDeselectAll('all')">Clear all</button>
+        </span>
+      </div>
+      ${hiveGroups}
+    </div>
+
+    <div style="padding:0 0 16px">
+      <div id="bulk-selected-count" class="t-sm" style="margin-bottom:10px;text-align:center;color:var(--brown3)">
+        ${s.selectedHives.size} hive${s.selectedHives.size!==1?'s':''} selected
+      </div>
+      <button class="btn btn-p btn-block" onclick="saveBulkLog()">Save log entry for selected hives</button>
+    </div>`;
+
+  panel.classList.add('open');
+}
+
+function bulkToggleHive(id) {
+  if (bulkLogState.selectedHives.has(id)) bulkLogState.selectedHives.delete(id);
+  else bulkLogState.selectedHives.add(id);
+  // Update button appearance without re-rendering whole panel
+  const btn = document.getElementById('bulk-hive-'+id);
+  if (btn) {
+    btn.className = 'btn btn-xs ' + (bulkLogState.selectedHives.has(id)?'btn-p':'btn-g');
+  }
+  const cnt = document.getElementById('bulk-selected-count');
+  if (cnt) cnt.textContent = bulkLogState.selectedHives.size + ' hive' + (bulkLogState.selectedHives.size!==1?'s':'') + ' selected';
+}
+
+function bulkSelectAll(type) {
+  const hs = type==='all' ? DB.hives : hByType(type);
+  hs.forEach(h => bulkLogState.selectedHives.add(h.id));
+  showBulkLogPanel();
+}
+
+function bulkDeselectAll(type) {
+  if (type==='all') {
+    bulkLogState.selectedHives.clear();
+  } else {
+    hByType(type).forEach(h => bulkLogState.selectedHives.delete(h.id));
+  }
+  showBulkLogPanel();
+}
+
+function saveBulkLog() {
+  const s = bulkLogState;
+  // Read current form values
+  const types = [...document.querySelectorAll('input[name="bulk-type"]:checked')].map(x=>x.value);
+  const note  = document.getElementById('bulk-note')?.value.trim() || '';
+  const date  = document.getElementById('bulk-date')?.value || s.date;
+
+  if (!types.length && !note) { toast('Select an action or add a comment'); return; }
+  if (!s.selectedHives.size)  { toast('Select at least one hive'); return; }
+
+  s.selectedHives.forEach(hid => {
+    const h = hById(hid); if (!h) return;
+    if (!h.log) h.log = [];
+    h.log.push({ id:uid(), date, types, note });
+  });
+
+  save();
+  toast(`Logged ${s.selectedHives.size} hive${s.selectedHives.size!==1?'s':''}`);
+  closePanel();
+  render();
+}
+
 function rHives() {
   const all = DB.hives;
   const shown = all.filter(h =>
@@ -1390,7 +1550,9 @@ function rHives() {
   }).join('') : `<div class="empty"><div class="ei">-</div><p>None yet.</p></div>`;
 
   return `<div class="card">
-    <div class="card-hd">Hive Manager</div>
+    <div class="card-hd">Hive Manager
+      <span class="sub"><button class="btn btn-p btn-xs" onclick="openBulkLog()">Bulk log entry</button></span>
+    </div>
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn btn-o btn-sm" onclick="addHive('breeder')">+ Breeder</button>
       <button class="btn btn-o btn-sm" onclick="addHive('starter')">+ Starter</button>
