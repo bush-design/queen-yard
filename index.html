@@ -629,7 +629,13 @@ function nextDue(g) {
   const stages = stagesFor(g);
   for (const st of stages) {
     if (st.key === 'place') continue;
-    const done = (g.finisher_records||[]).some(r => r[st.key] != null);
+    let done;
+    if (st.key === 'started') {
+      // 'started' stage = finishers have been assigned
+      done = (g.finisher_records||[]).length > 0;
+    } else {
+      done = (g.finisher_records||[]).some(r => r[st.key] != null && r[st.key] !== '');
+    }
     if (!done) return st;
   }
   return null;
@@ -681,12 +687,25 @@ function rDash() {
 
   return `
     ${dueBanner}
-    <div class="stats-row">
-      <div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div>
-      <div class="stat"><div class="n">${tGraftedSeason}</div><div class="l">Grafted</div></div>
-      <div class="stat"><div class="n">${totalEm}</div><div class="l">Emerged</div></div>
-      <div class="stat"><div class="n">${seasonPct !== null ? seasonPct+'%' : '—'}</div><div class="l">Season %</div></div>
-    </div>
+    ${(()=>{
+      // Cells on the go = cells in active finishers that haven't emerged yet
+      const cellsOnTheGo = G.reduce((a,g) => {
+        const outDate = g.protocol==='autumn'
+          ? dayjs(g.date).add(2,'day').format('YYYY-MM-DD')
+          : dayjs(g.date).add(10,'day').format('YYYY-MM-DD');
+        if (outDate < today()) return a; // completed
+        return a + (g.finisher_records||[]).reduce((b,fr) => {
+          const emerged = fr.emerged||0;
+          return b + Math.max(0,(fr.cells_received||0) - emerged);
+        }, 0);
+      }, 0);
+      return `<div class="stats-row">
+        <div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div>
+        <div class="stat"><div class="n">${cellsOnTheGo}</div><div class="l">Cells on the go</div></div>
+        <div class="stat"><div class="n">${totalEm}</div><div class="l">Emerged</div></div>
+        <div class="stat"><div class="n">${seasonPct !== null ? seasonPct+'%' : '—'}</div><div class="l">Season %</div></div>
+      </div>`;
+    })()}
     <div class="card">
       <div class="card-hd">Apiary <span class="t-xs">${bC}B · ${sC}S · ${fC}F</span>
         <span class="sub"><button class="btn btn-xs btn-o" onclick="go('hives')">Manage</button></span>
@@ -789,14 +808,38 @@ function rGraftCard(g) {
   }).join('');
 
   return `<div class="graft-card">
-    <div class="graft-hd" onclick="toggleGraft('${g.id}')">
-      <div class="graft-title">${fmtF(g.date)}</div>
-      <span class="chip ${isA?'chip-A':'chip-std'}">${isA?'Autumn':'Standard'}</span>
-      <span class="chip chip-B" style="font-size:10px">${B?B.name:'?'}</span>
-      <span class="t-xs">${tGr} grafted</span>
-      ${gPct!==null?`<span class="chip ${gPct>=70?'chip-ok':gPct>=40?'chip-warn':'chip-due'}">${gPct}%</span>`:''}
-      <span style="color:var(--brown3);margin-left:auto">›</span>
-    </div>
+    ${(()=>{
+      const outDate = isA ? dayjs(g.date).add(2,'day') : dayjs(g.date).add(10,'day');
+      const outDateStr = outDate.format('YYYY-MM-DD');
+      const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const outDay = dayNames[outDate.day()];
+      const outIsWknd = outDate.day()===0||outDate.day()===6;
+      const isCompleted = outDateStr < today();
+      // Cells due out = cells in finishers that haven't emerged yet for this graft
+      const cellsDueOut = (g.finisher_records||[]).reduce((a,fr) =>
+        a + Math.max(0,(fr.cells_received||0)-(fr.emerged||0)), 0);
+      const tIn = totalCellsInFinishers(g);
+      return `<div class="graft-hd" onclick="toggleGraft('${g.id}')">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span class="graft-title">${fmtF(g.date)}</span>
+            <span class="chip ${isA?'chip-A':'chip-std'}" style="font-size:10px">${isA?'Autumn':'Standard'}</span>
+            <span class="chip chip-B" style="font-size:10px">${B?B.name:'?'}</span>
+          </div>
+          <div style="margin-top:4px;font-size:12px;color:var(--brown2)">
+            Out: <strong style="color:${outIsWknd?'var(--red)':isCompleted?'var(--brown3)':'var(--amber)'}">${outDay} ${fmt(outDateStr)}</strong>
+            ${outIsWknd&&!isCompleted?`<span style="color:var(--red);font-size:10px;font-weight:700"> Weekend</span>`:''}
+            ${isCompleted?`<span style="color:var(--brown3);font-size:10px"> · Done</span>`:''}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          ${!isCompleted&&tIn>0?`<div style="font-size:20px;font-weight:800;color:var(--amber);line-height:1">${cellsDueOut}</div>
+            <div style="font-size:9px;color:var(--brown3);text-transform:uppercase;letter-spacing:.3px">cells out</div>`:''}
+          ${gPct!==null?`<div class="chip ${gPct>=70?'chip-ok':gPct>=40?'chip-warn':'chip-due'}" style="margin-top:2px">${gPct}%</div>`:''}
+        </div>
+        <span style="color:var(--brown3);font-size:16px;margin-left:6px">›</span>
+      </div>`;
+    })()}
     <div class="graft-body" id="gb-${g.id}">
       <div class="tl" style="margin-bottom:10px">${stageDots}</div>
 
@@ -1109,49 +1152,52 @@ function openRecordPanel(id) {
         ${fp!==null?`<span class="chip ${fp>=70?'chip-ok':fp>=40?'chip-warn':'chip-due'}" style="margin-left:auto">${fp}%</span>`:''}
         <button class="btn btn-d btn-xs" onclick="removeFinRec('${id}',${i})">×</button>
       </div>
-      <div class="move-counts">
-        <div class="count-box">
-          <label>Cells in</label>
-          <input type="number" min="0" value="${fr.cells_received||''}"
-            onchange="updateFinRec('${id}',${i},'cells_received',+this.value)">
-        </div>
-        ${!isA?`<div class="count-box">
-          <label>Capped (est)</label>
-          <input type="number" min="0" value="${fr.capped??''}"
-            onchange="updateFinRec('${id}',${i},'capped',this.value===''?null:+this.value)">
-        </div>`:''}
-        <div class="count-box">
-          <label>Emerged</label>
-          <input type="number" min="0" value="${fr.emerged??''}"
-            onchange="updateFinRec('${id}',${i},'emerged',this.value===''?null:+this.value)">
-        </div>
-        <div class="count-box">
-          <label>Mated</label>
-          <input type="number" min="0" value="${fr.mated??''}"
-            onchange="updateFinRec('${id}',${i},'mated',this.value===''?null:+this.value)">
-        </div>
-      </div>
-      ${!isA?(()=>{
+      ${(()=>{
         const d = dayjs(g.date);
         const estCapped  = d.add(5,'day').format('YYYY-MM-DD');
         const estEmerged = d.add(10,'day').format('YYYY-MM-DD');
         const actCapped  = fr.check_dates?.capped  || estCapped;
         const actEmerged = fr.check_dates?.emerged || estEmerged;
-        return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px;background:var(--wax);border-radius:var(--rs)">
-          <div class="field" style="flex:1;min-width:140px">
-            <label>Capped date <span style="font-weight:400;color:var(--brown3)">(est. ${fmt(estCapped)})</span></label>
-            <input type="date" style="font-size:13px;padding:7px 10px"
-              value="${actCapped}"
-              onchange="updateFinRecDate('${id}',${i},'capped',this.value)">
+        const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const cappedDay = dayNames[dayjs(actCapped).day()];
+        const outDay    = dayNames[dayjs(actEmerged).day()];
+        const outIsWknd = dayjs(actEmerged).day()===0||dayjs(actEmerged).day()===6;
+        return `<div class="move-counts">
+          <div class="count-box">
+            <label>Cells in</label>
+            <input type="number" min="0" value="${fr.cells_received||''}"
+              onchange="updateFinRec('${id}',${i},'cells_received',+this.value)">
           </div>
-          <div class="field" style="flex:1;min-width:140px">
-            <label>Out date <span style="font-weight:400;color:var(--brown3)">(est. ${fmt(estEmerged)})</span></label>
-            <input type="date" style="font-size:13px;padding:7px 10px"
-              value="${actEmerged}"
-              onchange="updateFinRecDate('${id}',${i},'emerged',this.value)">
+          ${!isA?`<div class="count-box" style="position:relative">
+            <label>Capped (est)</label>
+            <input type="number" min="0" value="${fr.capped??''}"
+              placeholder="${fr.capped??''}"
+              onchange="updateFinRec('${id}',${i},'capped',this.value===''?null:+this.value)">
+            <div style="font-size:9px;color:var(--amber);font-weight:700;margin-top:2px;text-align:center">
+              ${cappedDay} ${fmt(actCapped)}
+              <input type="date" style="position:absolute;opacity:0;inset:0;cursor:pointer"
+                value="${actCapped}" onchange="updateFinRecDate('${id}',${i},'capped',this.value);renderRecPanel('${id}')">
+            </div>
+          </div>`:''}
+          <div class="count-box" style="position:relative">
+            <label>Out</label>
+            <input type="number" min="0" value="${fr.emerged??''}"
+              onchange="updateFinRec('${id}',${i},'emerged',this.value===''?null:+this.value)">
+            <div style="font-size:9px;color:${outIsWknd?'var(--red)':'var(--green)'};font-weight:700;margin-top:2px;text-align:center">
+              ${outDay} ${fmt(actEmerged)}${outIsWknd?' ⚠':''}
+              <input type="date" style="position:absolute;opacity:0;inset:0;cursor:pointer"
+                value="${actEmerged}" onchange="updateFinRecDate('${id}',${i},'emerged',this.value);renderRecPanel('${id}')">
+            </div>
+          </div>
+        </div>
+        <div class="move-counts" style="margin-top:8px">
+          <div class="count-box" style="background:var(--wax)">
+            <label>Mated</label>
+            <input type="number" min="0" value="${fr.mated??''}"
+              onchange="updateFinRec('${id}',${i},'mated',this.value===''?null:+this.value)">
           </div>
         </div>`;
-      })():''}
+      })()}
     </div>`;
   }).join('');
 
@@ -1365,6 +1411,10 @@ function updateFinRec(gid, i, key, val) {
   const g = gById(gid); if (!g) return;
   g.finisher_records[i][key] = val;
   save();
+}
+function renderRecPanel(gid) {
+  // Re-render the record panel in place (for date changes)
+  openRecordPanel(gid);
 }
 
 function updateFinRecDate(gid, i, stage, val) {
