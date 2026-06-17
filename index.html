@@ -936,7 +936,7 @@ function rGraftForm() {
       </select>
       <input type="number" min="0" placeholder="Cells" value="${sa.cells_in||''}"
         style="width:80px;padding:10px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
-        oninput="graftForm.starter_allocations[${i}].cells_in=+this.value">
+        oninput="graftForm.starter_allocations[${i}].cells_in=+this.value;graftForm.grafted=graftForm.starter_allocations.reduce((a,s)=>a+(s.cells_in||0),0);const tot=document.getElementById('sa-total');if(tot)tot.textContent=graftForm.grafted;">
       <button class="btn btn-d btn-xs" onclick="removeSA(${i})">×</button>
     </div>`).join('');
 
@@ -973,8 +973,11 @@ function rGraftForm() {
       </div>
       <div class="field">
         <label>Cells Grafted</label>
-        <input type="number" min="0" placeholder="e.g. 135" value="${f.grafted||''}"
-          oninput="graftForm.grafted=+this.value">
+        ${(f.starter_allocations||[]).length > 0
+          ? `<div style="padding:10px 12px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--wax);font-size:20px;font-weight:800;color:var(--amber);text-align:center" id="sa-total">${f.starter_allocations.reduce((a,s)=>a+(s.cells_in||0),0)}</div>`
+          : `<input type="number" min="0" placeholder="e.g. 45" value="${f.grafted||''}"
+              oninput="graftForm.grafted=+this.value">`
+        }
       </div>
     </div>
     <p class="t-xs mt8" style="color:var(--brown3)">Cells grafted auto-totals from starters once you add them below.</p>
@@ -1168,34 +1171,37 @@ function openRecordPanel(id) {
             <input type="number" min="0" value="${fr.cells_received||''}"
               onchange="updateFinRec('${id}',${i},'cells_received',+this.value)">
           </div>
-          ${!isA?`<div class="count-box" style="position:relative">
-            <label>Capped (est)</label>
+          ${!isA?`<div class="count-box">
+            <label>Capped</label>
             <input type="number" min="0" value="${fr.capped??''}"
-              placeholder="${fr.capped??''}"
               onchange="updateFinRec('${id}',${i},'capped',this.value===''?null:+this.value)">
-            <div style="font-size:9px;color:var(--amber);font-weight:700;margin-top:2px;text-align:center">
-              ${cappedDay} ${fmt(actCapped)}
-              <input type="date" style="position:absolute;opacity:0;inset:0;cursor:pointer"
-                value="${actCapped}" onchange="updateFinRecDate('${id}',${i},'capped',this.value);renderRecPanel('${id}')">
-            </div>
+            <div style="font-size:9px;color:var(--amber);font-weight:700;margin-top:3px;text-align:center">${cappedDay} ${fmt(actCapped)}</div>
           </div>`:''}
-          <div class="count-box" style="position:relative">
+          <div class="count-box">
             <label>Out</label>
             <input type="number" min="0" value="${fr.emerged??''}"
               onchange="updateFinRec('${id}',${i},'emerged',this.value===''?null:+this.value)">
-            <div style="font-size:9px;color:${outIsWknd?'var(--red)':'var(--green)'};font-weight:700;margin-top:2px;text-align:center">
-              ${outDay} ${fmt(actEmerged)}${outIsWknd?' ⚠':''}
-              <input type="date" style="position:absolute;opacity:0;inset:0;cursor:pointer"
-                value="${actEmerged}" onchange="updateFinRecDate('${id}',${i},'emerged',this.value);renderRecPanel('${id}')">
-            </div>
+            <div style="font-size:9px;color:${outIsWknd?'var(--red)':'var(--green)'};font-weight:700;margin-top:3px;text-align:center">${outDay} ${fmt(actEmerged)}${outIsWknd?' ⚠':''}</div>
           </div>
         </div>
-        <div class="move-counts" style="margin-top:8px">
-          <div class="count-box" style="background:var(--wax)">
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <div class="count-box" style="background:var(--wax);flex:1">
             <label>Mated</label>
             <input type="number" min="0" value="${fr.mated??''}"
               onchange="updateFinRec('${id}',${i},'mated',this.value===''?null:+this.value)">
           </div>
+          ${!isA?`<div style="flex:2;display:flex;gap:6px">
+            <div class="field" style="flex:1">
+              <label style="font-size:9px">Capped date</label>
+              <input type="date" style="font-size:12px;padding:6px 8px"
+                value="${actCapped}" onchange="updateFinRecDate('${id}',${i},'capped',this.value);renderRecPanel('${id}')">
+            </div>
+            <div class="field" style="flex:1">
+              <label style="font-size:9px">Out date</label>
+              <input type="date" style="font-size:12px;padding:6px 8px"
+                value="${actEmerged}" onchange="updateFinRecDate('${id}',${i},'emerged',this.value);renderRecPanel('${id}')">
+            </div>
+          </div>`:''}
         </div>`;
       })()}
     </div>`;
