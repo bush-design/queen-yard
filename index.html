@@ -1134,7 +1134,14 @@ function openRecordPanel(id) {
 
   // Day 1 section: shown when no finisher records yet
   // Build starter-centric day1 UI
-  const day1Section = (!isA && frecs.length===0) ? buildDay1Section(id, sAllocs) : '';
+  const day1Section = (!isA && frecs.length===0) ? (
+    sAllocs.length > 0
+      ? buildDay1Section(id, sAllocs)
+      : `<div class="card" style="border:2px solid var(--amber)">
+          <div class="card-hd" style="color:var(--amber)">Day 1 — Assign cells to finishers</div>
+          <p class="t-sm">No starters found on this graft. <button class="btn btn-o btn-sm" onclick="closePanel();editGraft('${id}')">Edit graft to add starters</button></p>
+         </div>`
+  ) : '';
 
   // Finisher records
   const finRecRows = frecs.map((fr,i) => {
