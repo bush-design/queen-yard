@@ -1048,9 +1048,12 @@ function saveGraft() {
   if (f.protocol !== 'autumn' && (!f.starter_allocations||!f.starter_allocations.length)) {
     toast('Add at least one starter'); return;
   }
-  if (f.protocol !== 'autumn' && f.starter_allocations.some(sa=>!sa.starter_id)) {
-    toast('Select a starter for each row'); return;
+  const incompleteSA = (f.starter_allocations||[]).filter(sa=>sa.cells_in && !sa.starter_id);
+  if (f.protocol !== 'autumn' && incompleteSA.length) {
+    toast('Select a starter hive for each row that has cells'); return;
   }
+  // Remove empty rows (no starter and no cells)
+  f.starter_allocations = (f.starter_allocations||[]).filter(sa=>sa.starter_id||sa.cells_in);
   const existing = f.id ? gById(f.id) : null;
   const g = {
     id: f.id || uid(),
@@ -1074,7 +1077,18 @@ function saveGraft() {
   }
   const idx = DB.grafts.findIndex(x=>x.id===g.id);
   if (idx>=0) DB.grafts[idx]=g; else DB.grafts.unshift(g);
-  save(); graftForm=null; toast('Graft saved'); go('dash');
+  save();
+  const savedId = g.id;
+  const wasEdit = !!f.id;
+  graftForm = null;
+  toast('Graft saved');
+  if (wasEdit) {
+    // Go back to record panel so user can immediately assign finishers
+    go('dash');
+    setTimeout(() => openRecordPanel(savedId), 100);
+  } else {
+    go('dash');
+  }
 }
 
 function editGraft(id) {
@@ -1103,6 +1117,7 @@ function openGraft(id) { openRecordPanel(id); }
 function openRecordPanel(id) {
   panelGraftId = id;
   day1Data = {};
+  graftForm = null; // clear any pending edit so nav works correctly
   const _pg = gById(id);
   day1Allocs = _pg ? (_pg.starter_allocations||[]) : [];
   const g = gById(id); if (!g) return;
