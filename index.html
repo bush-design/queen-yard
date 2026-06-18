@@ -303,7 +303,7 @@ function render(){
 }
 function openPanel(mode,id){
   panelMode=mode;panelId=id;
-  if(mode==='rec')renderRecPanel(id);
+  if(mode==='rec'){assignDraft={};renderRecPanel(id);}
   if(mode==='hive')renderHivePanel(id);
   if(mode==='bulk')renderBulkPanel();
   document.getElementById('main-panel').classList.add('open');
@@ -505,7 +505,7 @@ function cancelGraft(){draft=null;go('dash');}
 function delGraft(id){if(!confirm('Delete this graft?'))return;DB.grafts=DB.grafts.filter(g=>g.id!==id);save();toast('Deleted');render();}
 
 // RECORD PANEL
-function renderRecPanel(id){assignDraft={};
+function renderRecPanel(id){
   const g=gById(id);if(!g)return;
   const B=hById(g.breeder_id);const isA=g.protocol==='autumn';
   document.getElementById('ptitle').textContent=fmtF(g.date)+' -- '+(B?B.name:'?');
@@ -540,14 +540,14 @@ function renderRecPanel(id){assignDraft={};
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
           style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
-          onchange="setAD('${s.hive_id}',${ri},'cells',+this.value)">
+          oninput="setAD('${s.hive_id}',${ri},'cells',+this.value);updateLeftCounter('${s.hive_id}',${s.cells_in||0})">
         <span style="color:var(--b3)">→</span>
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
           onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
           <option value="">Select F...</option>
           ${numSort(finishers).map(f=>`<option value="${f.id}" ${row.fin===f.id?'selected':''}>${f.name}</option>`).join('')}
         </select>
-        ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderRecPanel('${id}')">x</button>`:''}
+        ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderStarterCard('${s.hive_id}','${id}')">x</button>`:''}
       </div>`).join('');
     const assigned=assignDraft[s.hive_id].reduce((a,r)=>a+(+r.cells||0),0);
     const stillLeft=rem-assigned;
@@ -555,10 +555,10 @@ function renderRecPanel(id){assignDraft={};
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <span class="chip cS">${H?H.name:'?'}</span>
         <span class="tsm">${s.cells_in||0} cells</span>
-        <span style="font-size:12px;font-weight:700;color:${stillLeft>0?'var(--amb)':'var(--g)'};margin-left:auto">${stillLeft>0?stillLeft+' left':'all assigned'}</span>
+        <span id="left-${s.hive_id}" style="font-size:12px;font-weight:700;color:${stillLeft>0?'var(--amb)':'var(--g)'};margin-left:auto">${stillLeft>0?stillLeft+' left':'all assigned'}</span>
       </div>
-      ${rows}
-      <button class="btn badd bx" style="width:100%;margin-top:4px" onclick="addAD('${s.hive_id}');renderRecPanel('${id}')">+ Another finisher</button>
+      <div id="rows-${s.hive_id}">${rows}</div>
+      <button class="btn badd bx" style="width:100%;margin-top:4px" onclick="addAD('${s.hive_id}');renderStarterCard('${s.hive_id}','${id}')">+ Another finisher</button>
     </div>`;
   }).join('');
 
@@ -736,6 +736,39 @@ function renderHivePanel(id){
 
 // Assign draft state — reset each time panel opens
 let assignDraft={};
+
+function renderStarterCard(sid, gid){
+  const g=gById(gid);if(!g)return;
+  const s=(g.starters||[]).find(x=>x.hive_id===sid);if(!s)return;
+  const H=hById(sid);
+  const finishers=numSort(hByType('finisher'));
+  if(!assignDraft[sid])assignDraft[sid]=[{cells:'',fin:''}];
+  const rows=assignDraft[sid].map((row,ri)=>`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
+        style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+        oninput="setAD('${sid}',${ri},'cells',+this.value);updateLeftCounter('${sid}',${s.cells_in||0})">
+      <span style="color:var(--b3)">→</span>
+      <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+        onchange="setAD('${sid}',${ri},'fin',this.value)">
+        <option value="">Select F...</option>
+        ${numSort(finishers).map(f=>`<option value="${f.id}" ${row.fin===f.id?'selected':''}>${f.name}</option>`).join('')}
+      </select>
+      ${assignDraft[sid].length>1?`<button class="btn bd bx" onclick="removeAD('${sid}',${ri});renderStarterCard('${sid}','${gid}')">x</button>`:''}
+    </div>`).join('');
+  const rowsEl=document.getElementById('rows-'+sid);
+  if(rowsEl)rowsEl.innerHTML=rows;
+  // Update counter
+  updateLeftCounter(sid, s.cells_in||0);
+}
+
+function updateLeftCounter(sid, totalIn){
+  const draft=assignDraft[sid]||[];
+  const assigned=draft.reduce((a,r)=>a+(+r.cells||0),0);
+  const stillLeft=totalIn-assigned;
+  const el=document.getElementById('left-'+sid);
+  if(el){el.textContent=stillLeft>0?stillLeft+' left':'all assigned';el.style.color=stillLeft>0?'var(--amb)':'var(--g)';}
+}
 function setAD(sid,ri,key,val){if(!assignDraft[sid])assignDraft[sid]=[{cells:'',fin:''}];assignDraft[sid][ri][key]=val;}
 function addAD(sid){if(!assignDraft[sid])assignDraft[sid]=[{cells:'',fin:''}];assignDraft[sid].push({cells:'',fin:''});}
 function removeAD(sid,ri){if(assignDraft[sid])assignDraft[sid].splice(ri,1);if(!assignDraft[sid]||!assignDraft[sid].length)assignDraft[sid]=[{cells:'',fin:''}];}
