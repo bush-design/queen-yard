@@ -404,6 +404,12 @@ function finisherStatus(finisherId, excludeGraftId) {
   const td = today();
   let worstStatus = null; // track the most restrictive active batch
 
+  // Check if already assigned in the current day1Rows session (not yet saved)
+  const inCurrentSession = day1Rows.some(r => r.finisher_id === finisherId);
+  if (inCurrentSession) {
+    return { available: false, label: 'Already assigned this session', priority: -1 };
+  }
+
   DB.grafts.forEach(g => {
     if (excludeGraftId && g.id === excludeGraftId) return; // same graft — always OK
     const fr = (g.finisher_records||[]).find(r => r.finisher_id === finisherId);
@@ -447,9 +453,10 @@ function finisherOptionLabel(h, excludeGraftId) {
 
 function finisherOptionStyle(h, excludeGraftId) {
   const s = finisherStatus(h.id, excludeGraftId);
-  if (!s.available) return 'color:#dc2626';            // red — growing (other graft)
-  if (s.label === 'Available') return 'color:#15803d'; // green — empty
-  return 'color:#d97706';                              // amber — capped, or same graft (safe)
+  if (!s.available && s.priority === -1) return 'color:#9ca3af'; // grey — already assigned this session
+  if (!s.available) return 'color:#dc2626';                       // red — growing (other graft)
+  if (s.label === 'Available') return 'color:#15803d';            // green — empty
+  return 'color:#d97706';                                         // amber — capped, safe to add
 }
 function gById(id)    { return DB.grafts.find(g=>g.id===id); }
 
@@ -1261,7 +1268,7 @@ function renderDay1Rows() {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <span class="chip chip-F">Finisher</span>
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
-          onchange="day1Rows[${ri}].finisher_id=this.value">
+          onchange="day1Rows[${ri}].finisher_id=this.value;renderDay1Rows()">
           <option value="">Select finisher...</option>
           ${sortedFinishers(panelGraftId).map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''} style="${finisherOptionStyle(f,panelGraftId)}">${finisherOptionLabel(f,panelGraftId)}</option>`).join('')}
         </select>
