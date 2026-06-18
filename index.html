@@ -1103,6 +1103,8 @@ function openGraft(id) { openRecordPanel(id); }
 function openRecordPanel(id) {
   panelGraftId = id;
   day1Data = {};
+  const _pg = gById(id);
+  day1Allocs = _pg ? (_pg.starter_allocations||[]) : [];
   const g = gById(id); if (!g) return;
   const B = hById(g.breeder_id);
   const finishers = hByType('finisher');
@@ -1249,6 +1251,7 @@ function openRecordPanel(id) {
 // ── Day 1: starter-centric assignment ────────────────
 // day1Data[starter_id] = [ {cells, finisher_id}, ... ]
 let day1Data = {};
+let day1Allocs = []; // current sAllocs for Day 1 panel
 
 function buildDay1Section(gid, sAllocs) {
   const g = gById(gid);
@@ -1280,7 +1283,7 @@ function buildDay1Section(gid, sAllocs) {
           ).join('')}
         </select>
         ${assignments.length > 1
-          ? `<button class="btn btn-d btn-xs" onclick="removeDay1Assignment('${sa.starter_id}',${ai});document.getElementById('day1-assignments').innerHTML=buildDay1Section('${gid}',${JSON.stringify(sAllocs)})">×</button>`
+          ? `<button class="btn btn-d btn-xs" onclick="removeDay1Assignment('${sa.starter_id}',${ai});document.getElementById('day1-assignments').innerHTML=buildDay1Section('${gid}',day1Allocs)">×</button>`
           : ''}
       </div>`).join('');
 
@@ -1296,7 +1299,7 @@ function buildDay1Section(gid, sAllocs) {
       </div>
       ${assignRows}
       <button class="btn btn-g btn-xs" style="margin-top:4px"
-        onclick="addDay1Assignment('${sa.starter_id}');document.getElementById('day1-assignments').innerHTML=buildDay1Section('${gid}',${JSON.stringify(sAllocs)})">
+        onclick="addDay1Assignment('${sa.starter_id}');document.getElementById('day1-assignments').innerHTML=buildDay1Section('${gid}',day1Allocs)">
         + Split to another finisher
       </button>
     </div>`;
