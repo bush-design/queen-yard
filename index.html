@@ -1075,6 +1075,7 @@ function saveGraft() {
       capped:null, emerged:null, mated:null, check_dates:{}
     });
   }
+  g.updated_at = new Date().toISOString();
   const idx = DB.grafts.findIndex(x=>x.id===g.id);
   if (idx>=0) DB.grafts[idx]=g; else DB.grafts.unshift(g);
   save();
@@ -1786,6 +1787,7 @@ let _updHTimer = null;
 function updH(id, k, v) {
   const h = hById(id); if (!h) return;
   h[k] = v;
+  h.updated_at = new Date().toISOString();
   clearTimeout(_updHTimer);
   _updHTimer = setTimeout(() => save(), 600);
 }
@@ -2355,11 +2357,42 @@ async function syncFromSupa() {
       supaGet('qct_hives', 'select=*'),
       supaGet('qct_grafts', 'select=*')
     ]);
-    DB.hives  = hives.map(h => ({...h, log: h.log||[]}));
-    DB.grafts = grafts.map(g => ({
+    const remoteHives  = hives.map(h => ({...h, log: h.log||[]}));
+    const remoteGrafts = grafts.map(g => ({
       ...g, movements: g.movements||[], finisher_records: g.finisher_records||[]
     }));
-    saveLocal();
+
+    // MERGE: keep whichever version is newer (local or remote)
+    const mergedGrafts = [...DB.grafts];
+    remoteGrafts.forEach(rg => {
+      const localIdx = mergedGrafts.findIndex(lg => lg.id === rg.id);
+      if (localIdx === -1) {
+        mergedGrafts.push(rg);
+      } else {
+        const lg = mergedGrafts[localIdx];
+        const localTime  = lg.updated_at ? new Date(lg.updated_at).getTime() : 0;
+        const remoteTime = rg.updated_at ? new Date(rg.updated_at).getTime() : 0;
+        if (remoteTime > localTime) mergedGrafts[localIdx] = rg;
+      }
+    });
+
+    const mergedHives = [...DB.hives];
+    remoteHives.forEach(rh => {
+      const localIdx = mergedHives.findIndex(lh => lh.id === rh.id);
+      if (localIdx === -1) {
+        mergedHives.push(rh);
+      } else {
+        const lh = mergedHives[localIdx];
+        const localTime  = lh.updated_at ? new Date(lh.updated_at).getTime() : 0;
+        const remoteTime = rh.updated_at ? new Date(rh.updated_at).getTime() : 0;
+        if (remoteTime > localTime) mergedHives[localIdx] = rh;
+      }
+    });
+
+    DB.grafts = mergedGrafts;
+    DB.hives  = mergedHives;
+    _localSave();
+
     const dot = document.getElementById('db-dot');
     if (dot) dot.className = 'db-dot ok';
     return true;
@@ -2371,7 +2404,6 @@ async function syncFromSupa() {
     return false;
   }
 }
-
 async function pushToSupa() {
   if (!initSupa()) return;
   try {
