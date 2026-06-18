@@ -1264,14 +1264,48 @@ function renderDay1Rows() {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <span class="chip chip-F">Finisher</span>
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
-          onchange="day1Rows[${ri}].finisher_id=this.value;renderDay1Rows()">
+          onchange="day1Rows[${ri}].finisher_id=this.value;updateDay1StarterSection(${ri})">
           <option value="">Select finisher...</option>
           ${sortedFinishers(panelGraftId,ri).map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''} style="${finisherOptionStyle(f,panelGraftId,ri)}">${finisherOptionLabel(f,panelGraftId,ri)}</option>`).join('')}
         </select>
         <button class="btn btn-d btn-xs" onclick="removeDay1Row(${ri})">×</button>
       </div>
-      ${row.finisher_id ? buildStarterInputs(ri, starters, row, g) : '<p class="t-xs" style="color:var(--brown3)">Select a finisher above to enter cell counts</p>'}
+      <div id="day1-starters-${ri}">
+        ${row.finisher_id ? buildStarterInputs(ri, starters, row, g) : '<p class="t-xs" style="color:var(--brown3)">Select a finisher above</p>'}
+      </div>
     </div>`).join('');
+}
+
+function updateDay1StarterSection(ri) {
+  const container = document.getElementById('day1-starters-' + ri);
+  if (!container) { renderDay1Rows(); return; }
+  const g = gById(panelGraftId);
+  const sAllocs = g ? (g.starter_allocations||[]) : [];
+  const starters = sAllocs.map(sa => hById(sa.starter_id)).filter(Boolean);
+  const row = day1Rows[ri];
+  if (!row) return;
+  if (row.finisher_id) {
+    container.innerHTML = buildStarterInputs(ri, starters, row, g);
+  } else {
+    container.innerHTML = '<p class="t-xs" style="color:var(--brown3)">Select a finisher above</p>';
+  }
+  // Also re-render other rows' dropdowns to grey out this finisher
+  // but don't rebuild the whole thing — just update other selects
+  day1Rows.forEach((r, idx) => {
+    if (idx === ri) return;
+    const sel = document.querySelector('#day1-assignments > div:nth-child(' + (idx+1) + ') select');
+    if (sel) {
+      const curVal = r.finisher_id;
+      sel.innerHTML = '<option value="">Select finisher...</option>' +
+        sortedFinishers(panelGraftId, idx).map(f =>
+          '<option value="' + f.id + '"' +
+          (curVal === f.id ? ' selected' : '') +
+          ' style="' + finisherOptionStyle(f, panelGraftId, idx) + '">' +
+          finisherOptionLabel(f, panelGraftId, idx) +
+          '</option>'
+        ).join('');
+    }
+  });
 }
 
 function buildStarterInputs(ri, starters, row, g) {
