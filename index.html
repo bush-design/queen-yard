@@ -1102,7 +1102,7 @@ function openGraft(id) { openRecordPanel(id); }
 // ═══════════════════════════════════════════════════════
 function openRecordPanel(id) {
   panelGraftId = id;
-  day1Rows = [];
+  day1Data = {};
   const g = gById(id); if (!g) return;
   const B = hById(g.breeder_id);
   const finishers = hByType('finisher');
@@ -1133,14 +1133,8 @@ function openRecordPanel(id) {
   }).join('');
 
   // Day 1 section: shown when no finisher records yet
-  const day1Section = (!isA && frecs.length===0) ? `
-    <div class="card" style="border:2px solid var(--amber)">
-      <div class="card-hd" style="color:var(--amber)">Day 1 — Assign cells to finisher</div>
-      <p class="t-sm" style="margin-bottom:12px">For each finisher receiving cells, enter which starters contributed and how many.</p>
-      <div id="day1-assignments"></div>
-      <button class="btn btn-add btn-sm btn-block" onclick="addDay1Row()">+ Add finisher assignment</button>
-      <button class="btn btn-p btn-block mt12" onclick="saveDay1('${id}')">Save assignments</button>
-    </div>` : '';
+  // Build starter-centric day1 UI
+  const day1Section = (!isA && frecs.length===0) ? buildDay1Section(id, sAllocs) : '';
 
   // Finisher records
   const finRecRows = frecs.map((fr,i) => {
@@ -1245,183 +1239,129 @@ function openRecordPanel(id) {
 }
 
 // Day 1 assignment rows (dynamic)
-let day1Rows = [];
-function addDay1Row() {
-  day1Rows.push({ finisher_id:'', sources:[] });
-  renderDay1Rows();
-}
+// ── Day 1: starter-centric assignment ────────────────
+// day1Data[starter_id] = [ {cells, finisher_id}, ... ]
+let day1Data = {};
 
-function renderDay1Rows() {
-  const container = document.getElementById('day1-assignments');
-  if (!container) return;
-  const finishers = hByType('finisher');
-  const g = gById(panelGraftId);
-  const sAllocs = g ? (g.starter_allocations||[]) : [];
-  const starters = sAllocs.map(sa => hById(sa.starter_id)).filter(Boolean);
+function buildDay1Section(gid, sAllocs) {
+  const g = gById(gid);
+  if (!sAllocs.length) return '';
+  const rows = sAllocs.map(sa => {
+    const S = hById(sa.starter_id);
+    const remaining = sa.cells_in || 0;
+    if (!day1Data[sa.starter_id]) day1Data[sa.starter_id] = [{cells:'', finisher_id:''}];
+    const assignments = day1Data[sa.starter_id];
+    const totalAssigned = assignments.reduce((a,r) => a + (+(r.cells)||0), 0);
+    const leftOver = remaining - totalAssigned;
 
-  container.innerHTML = day1Rows.map((row,ri) => `
-    <div style="background:var(--cream);border:1px solid var(--wax2);border-radius:var(--rs);padding:10px;margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span class="chip chip-F">Finisher</span>
-        <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
-          onchange="day1Rows[${ri}].finisher_id=this.value;updateDay1StarterSection(${ri})">
-          <option value="">Select finisher...</option>
-          ${sortedFinishers(panelGraftId,ri).map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''} style="${finisherOptionStyle(f,panelGraftId,ri)}">${finisherOptionLabel(f,panelGraftId,ri)}</option>`).join('')}
+    const assignRows = assignments.map((asgn, ai) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input type="number" min="0" placeholder="cells" value="${asgn.cells||''}"
+          style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:700;
+                 border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
+          oninput="day1Data['${sa.starter_id}'][${ai}].cells=+this.value;
+                   document.getElementById('d1-left-${sa.starter_id}').textContent=
+                     (${remaining} - day1Data['${sa.starter_id}'].reduce((a,r)=>a+(+(r.cells)||0),0)) + ' left'">
+        <span style="color:var(--brown3);font-size:14px">→</span>
+        <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);
+                       border-radius:var(--rs);background:var(--cream)"
+          onchange="day1Data['${sa.starter_id}'][${ai}].finisher_id=this.value">
+          <option value="">Select F...</option>
+          ${sortedFinishers(gid).map(f =>
+            `<option value="${f.id}" ${asgn.finisher_id===f.id?'selected':''}
+               style="${finisherOptionStyle(f,gid)}">${finisherOptionLabel(f,gid)}</option>`
+          ).join('')}
         </select>
-        <button class="btn btn-d btn-xs" onclick="removeDay1Row(${ri})">×</button>
+        ${assignments.length > 1
+          ? `<button class="btn btn-d btn-xs" onclick="removeDay1Assignment('${sa.starter_id}',${ai});document.getElementById('day1-assignments').innerHTML=buildDay1Section('${gid}',${JSON.stringify(sAllocs)})">×</button>`
+          : ''}
+      </div>`).join('');
+
+    return `<div style="background:var(--cream);border:1px solid var(--wax2);border-radius:var(--rs);
+                        padding:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="chip chip-S">${S?S.name:'?'}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--brown2)">${remaining} cells</span>
+        <span id="d1-left-${sa.starter_id}" style="font-size:12px;font-weight:700;
+              color:${leftOver>0?'var(--amber)':'var(--green)'};margin-left:auto">
+          ${leftOver > 0 ? leftOver + ' left' : 'all assigned'}
+        </span>
       </div>
-      <div id="day1-starters-${ri}">
-        ${row.finisher_id ? buildStarterInputs(ri, starters, row, g) : '<p class="t-xs" style="color:var(--brown3)">Select a finisher above</p>'}
-      </div>
-    </div>`).join('');
+      ${assignRows}
+      <button class="btn btn-g btn-xs" style="margin-top:4px"
+        onclick="addDay1Assignment('${sa.starter_id}');document.getElementById('day1-assignments').innerHTML=buildDay1Section('${gid}',${JSON.stringify(sAllocs)})">
+        + Split to another finisher
+      </button>
+    </div>`;
+  }).join('');
+
+  return `<div class="card" style="border:2px solid var(--amber)">
+    <div class="card-hd" style="color:var(--amber)">Day 1 — Assign cells to finishers</div>
+    <p class="t-sm" style="margin-bottom:12px">
+      For each starter, enter how many cells go to each finisher.
+    </p>
+    <div id="day1-assignments">${rows}</div>
+    <button class="btn btn-p btn-block mt12" onclick="saveDay1('${gid}')">Save assignments</button>
+  </div>`;
 }
 
-function updateDay1StarterSection(ri) {
-  const container = document.getElementById('day1-starters-' + ri);
-  if (!container) { renderDay1Rows(); return; }
-  const g = gById(panelGraftId);
-  const sAllocs = g ? (g.starter_allocations||[]) : [];
-  const starters = sAllocs.map(sa => hById(sa.starter_id)).filter(Boolean);
-  const row = day1Rows[ri];
-  if (!row) return;
-  if (row.finisher_id) {
-    container.innerHTML = buildStarterInputs(ri, starters, row, g);
-  } else {
-    container.innerHTML = '<p class="t-xs" style="color:var(--brown3)">Select a finisher above</p>';
-  }
-  // Also re-render other rows' dropdowns to grey out this finisher
-  // but don't rebuild the whole thing — just update other selects
-  day1Rows.forEach((r, idx) => {
-    if (idx === ri) return;
-    const sel = document.querySelector('#day1-assignments > div:nth-child(' + (idx+1) + ') select');
-    if (sel) {
-      const curVal = r.finisher_id;
-      sel.innerHTML = '<option value="">Select finisher...</option>' +
-        sortedFinishers(panelGraftId, idx).map(f =>
-          '<option value="' + f.id + '"' +
-          (curVal === f.id ? ' selected' : '') +
-          ' style="' + finisherOptionStyle(f, panelGraftId, idx) + '">' +
-          finisherOptionLabel(f, panelGraftId, idx) +
-          '</option>'
-        ).join('');
-    }
-  });
+function addDay1Assignment(starter_id) {
+  if (!day1Data[starter_id]) day1Data[starter_id] = [];
+  day1Data[starter_id].push({cells:'', finisher_id:''});
 }
 
-function buildStarterInputs(ri, starters, row, g) {
-  if (!starters.length) return '<p class="t-xs" style="color:var(--brown3)">No starters found</p>';
-  let html = '<div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>';
-  starters.forEach(S => {
-    const src = row.sources.find(s => s.starter_id === S.id) || {count:''};
-    const remaining = g ? starterCellsRemaining(g, S.id) : 0;
-    const alreadyAssigned = day1Rows.reduce((a, r2, idx2) => {
-      if (idx2 === ri) return a;
-      const s2 = r2.sources.find(x => x.starter_id === S.id);
-      return a + (s2 ? +(s2.count)||0 : 0);
-    }, 0);
-    const stillAvail = remaining - alreadyAssigned;
-    const availCol = stillAvail > 0 ? 'var(--amber)' : 'var(--brown3)';
-    const availWt  = stillAvail > 0 ? '700' : '400';
-    const availTxt = stillAvail > 0 ? stillAvail + ' left' : remaining > 0 ? 'all assigned' : '';
-    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
-          + '<span class="chip chip-S" style="min-width:48px">' + S.name + '</span>'
-          + '<input type="number" min="0" placeholder="0" value="' + (+(src.count)||'') + '"'
-          + ' style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"'
-          + ' oninput="setDay1Source(' + ri + ',\'' + S.id + '\',+this.value)">'
-          + '<span class="t-xs" style="color:' + availCol + ';font-weight:' + availWt + '">' + availTxt + '</span>'
-          + '</div>';
-  });
-  return html;
+function removeDay1Assignment(starter_id, ai) {
+  if (day1Data[starter_id]) day1Data[starter_id].splice(ai, 1);
+  if (!day1Data[starter_id].length) day1Data[starter_id] = [{cells:'', finisher_id:''}];
 }
-
-function setDay1Source(ri, starter_id, count) {
-  const row = day1Rows[ri];
-  const existing = row.sources.find(s=>s.starter_id===starter_id);
-  if (existing) existing.count = count;
-  else row.sources.push({ starter_id, count });
-}
-
-function removeDay1Row(ri) {
-  day1Rows.splice(ri,1);
-  renderDay1Rows();
-}
-
-let panelGraftId = null;
 
 function saveDay1(gid) {
   const g = gById(gid); if (!g) return;
-  if (day1Rows.some(r=>!r.finisher_id)) { toast('Select a finisher for each row'); return; }
-  if (!day1Rows.length) { toast('Add at least one finisher'); return; }
+  const sAllocs = g.starter_allocations || [];
 
-  day1Rows.forEach(row => {
-    const totalIn = row.sources.reduce((a,s)=>a+(s.count||0),0);
-    const existing = (g.finisher_records||[]).find(r=>r.finisher_id===row.finisher_id);
-    if (existing) {
-      existing.cells_received += totalIn;
-      row.sources.forEach(src => {
-        const ex = (existing.sources||[]).find(s=>s.starter_id===src.starter_id);
-        if (ex) ex.count += src.count||0;
-        else (existing.sources=existing.sources||[]).push({...src});
-      });
-    } else {
-      if (!g.finisher_records) g.finisher_records = [];
-      const _d = dayjs(g.date);
-      g.finisher_records.push({
-        finisher_id: row.finisher_id,
-        cells_received: totalIn,
-        sources: row.sources.filter(s=>s.count>0).map(s=>({...s})),
-        capped:null, emerged:null, mated:null,
-        check_dates:{
-          capped:  _d.add(5,'day').format('YYYY-MM-DD'),
-          emerged: _d.add(10,'day').format('YYYY-MM-DD')
-        }
-      });
-    }
-    // Update starter cells_out
-    row.sources.forEach(src => {
-      const sa = (g.starter_allocations||[]).find(s=>s.starter_id===src.starter_id);
-      if (sa) sa.cells_out = (sa.cells_out||0) + (src.count||0);
+  // Validate — every assignment needs a finisher and cells
+  let valid = true;
+  sAllocs.forEach(sa => {
+    const assignments = day1Data[sa.starter_id] || [];
+    assignments.forEach(asgn => {
+      if (asgn.finisher_id && !asgn.cells) { toast('Enter cell count for each assignment'); valid=false; }
+      if (asgn.cells && !asgn.finisher_id) { toast('Select a finisher for each cell count'); valid=false; }
+    });
+  });
+  if (!valid) return;
+
+  if (!g.finisher_records) g.finisher_records = [];
+  const _d = dayjs(g.date);
+  const estCapped  = _d.add(5,'day').format('YYYY-MM-DD');
+  const estEmerged = _d.add(10,'day').format('YYYY-MM-DD');
+
+  sAllocs.forEach(sa => {
+    const assignments = (day1Data[sa.starter_id] || []).filter(a => a.finisher_id && +a.cells > 0);
+    assignments.forEach(asgn => {
+      const existing = g.finisher_records.find(r => r.finisher_id === asgn.finisher_id);
+      if (existing) {
+        existing.cells_received += +asgn.cells;
+        const exSrc = (existing.sources||[]).find(s => s.starter_id === sa.starter_id);
+        if (exSrc) exSrc.count += +asgn.cells;
+        else (existing.sources = existing.sources||[]).push({starter_id: sa.starter_id, count: +asgn.cells});
+      } else {
+        g.finisher_records.push({
+          finisher_id: asgn.finisher_id,
+          cells_received: +asgn.cells,
+          sources: [{starter_id: sa.starter_id, count: +asgn.cells}],
+          capped: null, emerged: null, mated: null,
+          check_dates: { capped: estCapped, emerged: estEmerged }
+        });
+      }
+      // Update starter cells_out
+      sa.cells_out = (sa.cells_out||0) + +asgn.cells;
     });
   });
 
-  day1Rows = [];
-  save(); toast('Assignments saved'); openRecordPanel(gid);
-}
-
-function addExtraFinRow(gid) {
-  panelGraftId = gid;
-  const g = gById(gid); if (!g) return;
-  const container = document.getElementById('extra-fin-rows');
-  if (!container) return;
-  const finishers = hByType('finisher');
-  const sAllocs = g.starter_allocations||[];
-  const starters = sAllocs.map(sa=>hById(sa.starter_id)).filter(Boolean);
-  const rowId = 'efr-'+uid();
-
-  const div = document.createElement('div');
-  div.id = rowId;
-  div.style.cssText = 'background:var(--cream);border:1px solid var(--wax2);border-radius:var(--rs);padding:10px;margin-bottom:8px';
-  div.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <span class="chip chip-F">Finisher</span>
-      <select id="${rowId}-fin" style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)">
-        <option value="">Select finisher...</option>
-        ${sortedFinishers(gid).map(f=>`<option value="${f.id}" style="${finisherOptionStyle(f,gid)}">${finisherOptionLabel(f,gid)}</option>`).join('')}
-      </select>
-      <button class="btn btn-d btn-xs" onclick="document.getElementById('${rowId}').remove()">×</button>
-    </div>
-    <div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>
-    ${starters.map(S=>{
-      const remaining = starterCellsRemaining(g, S.id);
-      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span class="chip chip-S" style="min-width:48px">${S.name}</span>
-        <input type="number" id="${rowId}-src-${S.id}" min="0" placeholder="0"
-          style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)">
-        <span class="t-xs" style="color:${remaining>0?'var(--amber)':'var(--brown3)'};font-weight:${remaining>0?'700':'400'}">${remaining > 0 ? remaining + ' left' : 'all assigned'}</span>
-      </div>`;
-    }).join('')}
-    <button class="btn btn-p btn-sm btn-block mt8" onclick="saveExtraFin('${gid}','${rowId}',${JSON.stringify(starters.map(s=>s.id))})">Save</button>`;
-  container.appendChild(div);
+  day1Data = {};
+  save();
+  toast('Assignments saved');
+  openRecordPanel(gid);
 }
 
 function saveExtraFin(gid, rowId, starterIds) {
