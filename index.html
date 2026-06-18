@@ -375,39 +375,35 @@ function numFromName(name) {
   return m ? parseInt(m[0]) : 999;
 }
 
-function sortedFinishers(excludeGraftId) {
-  // Sort numerically first, then by availability within same number
-  // iOS native selects render in DOM order so we must get this right before building options
+function sortedFinishers(excludeGraftId, currentRowIndex=-1) {
   const sorted = hByType('finisher').slice().sort((a,b) => {
     const numA = numFromName(a.name), numB = numFromName(b.name);
     if (numA !== numB) return numA - numB;
     return a.name.localeCompare(b.name);
   });
-  // Then stable-sort by availability (available/capped first, growing last)
-  // Using a separate pass so numeric order is preserved within each availability group
   return sorted.sort((a,b) => {
-    const sA = finisherStatus(a.id, excludeGraftId);
-    const sB = finisherStatus(b.id, excludeGraftId);
-    // Only demote truly unavailable (growing other graft) to bottom
+    const sA = finisherStatus(a.id, excludeGraftId, currentRowIndex);
+    const sB = finisherStatus(b.id, excludeGraftId, currentRowIndex);
     const unavailA = !sA.available ? 1 : 0;
     const unavailB = !sB.available ? 1 : 0;
     if (unavailA !== unavailB) return unavailA - unavailB;
-    // Within same availability, keep numeric order
     return numFromName(a.name) - numFromName(b.name);
   });
 }
 
-function finisherStatus(finisherId, excludeGraftId) {
+function finisherStatus(finisherId, excludeGraftId, currentRowIndex=-1) {
   // Find all active graft batches that have this finisher
   // Returns { available: bool, label: string, priority: number (lower = more available) }
   // excludeGraftId: ignore this graft when checking (used when adding more cells to same graft)
   const td = today();
   let worstStatus = null; // track the most restrictive active batch
 
-  // Check if already assigned in the current day1Rows session (not yet saved)
-  const inCurrentSession = day1Rows.some(r => r.finisher_id === finisherId);
-  if (inCurrentSession) {
-    return { available: false, label: 'Already assigned this session', priority: -1 };
+  // Check if already assigned in another row in the current day1Rows session
+  const inOtherRow = day1Rows.some((r, idx) =>
+    r.finisher_id === finisherId && idx !== currentRowIndex
+  );
+  if (inOtherRow) {
+    return { available: false, label: 'Already assigned', priority: -1 };
   }
 
   DB.grafts.forEach(g => {
@@ -445,15 +441,15 @@ function finisherStatus(finisherId, excludeGraftId) {
   return worstStatus;
 }
 
-function finisherOptionLabel(h, excludeGraftId) {
-  const s = finisherStatus(h.id, excludeGraftId);
+function finisherOptionLabel(h, excludeGraftId, currentRowIndex=-1) {
+  const s = finisherStatus(h.id, excludeGraftId, currentRowIndex);
   const icon = s.available ? (s.label === 'Available' ? '' : '+ ') : '— ';
   return `${h.name}  —  ${icon}${s.label}`;
 }
 
-function finisherOptionStyle(h, excludeGraftId) {
-  const s = finisherStatus(h.id, excludeGraftId);
-  if (!s.available && s.priority === -1) return 'color:#9ca3af'; // grey — already assigned this session
+function finisherOptionStyle(h, excludeGraftId, currentRowIndex=-1) {
+  const s = finisherStatus(h.id, excludeGraftId, currentRowIndex);
+  if (!s.available && s.priority === -1) return 'color:#9ca3af'; // grey — already assigned in another row
   if (!s.available) return 'color:#dc2626';                       // red — growing (other graft)
   if (s.label === 'Available') return 'color:#15803d';            // green — empty
   return 'color:#d97706';                                         // amber — capped, safe to add
@@ -1270,28 +1266,38 @@ function renderDay1Rows() {
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
           onchange="day1Rows[${ri}].finisher_id=this.value;renderDay1Rows()">
           <option value="">Select finisher...</option>
-          ${sortedFinishers(panelGraftId).map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''} style="${finisherOptionStyle(f,panelGraftId)}">${finisherOptionLabel(f,panelGraftId)}</option>`).join('')}
+          ${sortedFinishers(panelGraftId,ri).map(f=>`<option value="${f.id}" ${row.finisher_id===f.id?'selected':''} style="${finisherOptionStyle(f,panelGraftId,ri)}">${finisherOptionLabel(f,panelGraftId,ri)}</option>`).join('')}
         </select>
         <button class="btn btn-d btn-xs" onclick="removeDay1Row(${ri})">×</button>
       </div>
-      <div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>
-      ${starters.map((S,si) => {
-        const src = row.sources.find(s=>s.starter_id===S.id)||{count:''};
-        const remaining = g ? starterCellsRemaining(g, S.id) : 0;
-        const alreadyAssigned = day1Rows.slice(0,ri).reduce((a,r2) => {
-          const s2 = r2.sources.find(x=>x.starter_id===S.id);
-          return a + (s2?s2.count||0:0);
-        }, 0);
-        const stillAvail = remaining - alreadyAssigned;
-        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span class="chip chip-S" style="min-width:48px">${S.name}</span>
-          <input type="number" min="0" placeholder="0" value="${src.count||''}"
-            style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
-            oninput="setDay1Source(${ri},'${S.id}',+this.value)">
-          <span class="t-xs" style="color:${stillAvail>0?'var(--amber)':'var(--brown3)'};font-weight:${stillAvail>0?'700':'400'}">${stillAvail > 0 ? stillAvail + ' left' : remaining > 0 ? 'all assigned' : ''}</span>
-        </div>`;
-      }).join('')}
+      ${row.finisher_id ? buildStarterInputs(ri, starters, row, g) : '<p class="t-xs" style="color:var(--brown3)">Select a finisher above to enter cell counts</p>'}
     </div>`).join('');
+}
+
+function buildStarterInputs(ri, starters, row, g) {
+  if (!starters.length) return '<p class="t-xs" style="color:var(--brown3)">No starters found</p>';
+  let html = '<div class="sec-lbl" style="margin-bottom:6px">Cells from each starter:</div>';
+  starters.forEach(S => {
+    const src = row.sources.find(s => s.starter_id === S.id) || {count:''};
+    const remaining = g ? starterCellsRemaining(g, S.id) : 0;
+    const alreadyAssigned = day1Rows.reduce((a, r2, idx2) => {
+      if (idx2 === ri) return a;
+      const s2 = r2.sources.find(x => x.starter_id === S.id);
+      return a + (s2 ? +(s2.count)||0 : 0);
+    }, 0);
+    const stillAvail = remaining - alreadyAssigned;
+    const availCol = stillAvail > 0 ? 'var(--amber)' : 'var(--brown3)';
+    const availWt  = stillAvail > 0 ? '700' : '400';
+    const availTxt = stillAvail > 0 ? stillAvail + ' left' : remaining > 0 ? 'all assigned' : '';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+          + '<span class="chip chip-S" style="min-width:48px">' + S.name + '</span>'
+          + '<input type="number" min="0" placeholder="0" value="' + (+(src.count)||'') + '"'
+          + ' style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:700;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"'
+          + ' oninput="setDay1Source(' + ri + ',\'' + S.id + '\',+this.value)">'
+          + '<span class="t-xs" style="color:' + availCol + ';font-weight:' + availWt + '">' + availTxt + '</span>'
+          + '</div>';
+  });
+  return html;
 }
 
 function setDay1Source(ri, starter_id, count) {
