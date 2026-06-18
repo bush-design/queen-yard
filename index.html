@@ -7,14 +7,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
 <style>
 :root {
-  --g:#4A9B6F;--gl:#E8F5EE;--gm:#A8D5B8;--ink:#1C1917;--b2:#57534E;--b3:#A8A29E;
+  --g:#6B8C5A;--gl:#EEF3EA;--gm:#B5C9AA;--ink:#1C1917;--b2:#57534E;--b3:#A8A29E;
   --wht:#FFFFFF;--cr:#F9FFF9;--bdr:#D1FAE5;--red:#DC2626;--amb:#D97706;
   --r:12px;--rs:8px;--sh:0 1px 4px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);
   --nh:56px;--fn:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:var(--fn);background:var(--cr);color:var(--ink);min-height:100vh;}
-nav{position:fixed;top:0;left:0;right:0;height:var(--nh);background:#2D5A3D;
+nav{position:fixed;top:0;left:0;right:0;height:var(--nh);background:#3D5432;
   display:flex;align-items:center;padding:0 14px;gap:3px;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.3);}
 .logo{color:var(--gm);font-weight:800;font-size:17px;margin-right:6px;letter-spacing:-.3px;}
 nav button{background:none;border:none;color:#86efac66;padding:7px 10px;border-radius:var(--rs);
@@ -120,16 +120,16 @@ textarea{resize:vertical;min-height:60px;}
 .apy-body{display:none;flex-wrap:wrap;gap:6px;padding:10px 12px;background:var(--wht);border-top:1px solid var(--bdr);}
 .out-banner{background:var(--gl);border-radius:var(--rs);padding:12px 14px;margin-top:10px;}
 .bbar{display:none;position:fixed;bottom:0;left:0;right:0;height:60px;
-  background:#2D5A3D;border-top:1px solid rgba(255,255,255,.1);z-index:200;}
+  background:#3D5432;border-top:1px solid rgba(255,255,255,.1);z-index:200;}
 .bbar-inner{display:flex;height:100%;}
 .bbt{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:2px;cursor:pointer;border:none;background:none;color:#86efac55;font-size:10px;font-weight:600;}
 .bbt.active,.bbt:hover{color:var(--gm);}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);
-  background:#2D5A3D;color:var(--gm);padding:11px 22px;border-radius:30px;font-size:14px;font-weight:700;
+  background:#3D5432;color:var(--gm);padding:11px 22px;border-radius:30px;font-size:14px;font-weight:700;
   box-shadow:0 4px 20px rgba(0,0,0,.3);transition:transform .3s;z-index:999;white-space:nowrap;pointer-events:none;}
 #toast.show{transform:translateX(-50%) translateY(0);}
-.pin-screen{position:fixed;inset:0;background:#2D5A3D;z-index:9999;display:flex;flex-direction:column;
+.pin-screen{position:fixed;inset:0;background:#3D5432;z-index:9999;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:24px;}
 .pin-title{color:var(--gm);font-size:22px;font-weight:800;}
 .pin-sub{color:#86efac88;font-size:14px;}
@@ -519,28 +519,37 @@ function renderRecPanel(id){
   const stSummary=(g.starters||[]).map(s=>{
     const H=hById(s.hive_id);
     const sent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
-    const rem=(s.cells_in||0)-sent;const sp=pct(sent,s.cells_in||0);
-    return`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--gl);border-radius:var(--rs);margin-bottom:6px">
-      <span class="chip cS">${H?H.name:'?'}</span>
-      <div style="flex:1"><div class="tsm">${s.cells_in||0} in · ${sent} to finishers</div>
-        ${rem>0?`<div style="font-size:12px;font-weight:700;color:var(--amb)">${rem} left</div>`:'<div style="font-size:12px;color:var(--g);font-weight:700">All assigned</div>'}
+    const accepted=s.cells_accepted!=null?s.cells_accepted:null;
+    // Starter %: cells_accepted / cells_in (acceptance rate)
+    const acceptPct=accepted!=null?pct(accepted,s.cells_in||0):null;
+    // Allocation %: sent to finishers / cells_accepted
+    const allocPct=accepted!=null&&accepted>0?pct(sent,accepted):null;
+    return`<div style="padding:10px;background:var(--gl);border-radius:var(--rs);margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span class="chip cS">${H?H.name:'?'}</span>
+        <span class="tsm">${s.cells_in||0} grafted in</span>
+        ${accepted!=null?`<span class="tsm">· ${accepted} accepted</span>`:''}
+        ${acceptPct!==null?`<span class="chip ${acceptPct>=70?'cok':acceptPct>=40?'cwarn':'cbad'}" style="margin-left:auto">${acceptPct}%</span>`:'<span class="txs" style="margin-left:auto;color:var(--b3)">acceptance not recorded</span>'}
       </div>
-      ${sp!==null?`<span class="chip ${sp>=70?'cok':sp>=40?'cwarn':'cbad'}">${sp}%</span>`:''}
+      ${sent>0?`<div class="txs">${sent} sent to finishers${allocPct!==null?' · '+allocPct+'% allocated':''}</div>`:''}
     </div>`;
   }).join('');
 
-  // Assign section — one card per starter, multiple rows per starter
+  // Assign section — one card per starter, with accepted cells confirmation + finisher rows
   const assignRows=(g.starters||[]).map(s=>{
     const H=hById(s.hive_id);
-    const sent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
-    const rem=(s.cells_in||0)-sent;
-    // Build multiple input rows for this starter (stored in assignDraft)
+    const alreadySent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
+    // Use cells_accepted if already confirmed, otherwise show input
+    const accepted = s.cells_accepted != null ? s.cells_accepted : (assignDraft[s.hive_id+'_accepted'] ?? '');
+    const acceptedNum = +accepted || 0;
+    const acceptedConfirmed = s.cells_accepted != null;
+    const sp = acceptedNum > 0 ? pct(acceptedNum, s.cells_in||0) : null;
     if(!assignDraft[s.hive_id])assignDraft[s.hive_id]=[{cells:'',fin:''}];
-    const rows=assignDraft[s.hive_id].map((row,ri)=>`
+    const finRows=assignDraft[s.hive_id].map((row,ri)=>`
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
           style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
-          oninput="setAD('${s.hive_id}',${ri},'cells',+this.value);updateLeftCounter('${s.hive_id}',${s.cells_in||0})">
+          oninput="setAD('${s.hive_id}',${ri},'cells',+this.value);updateLeftCounter('${s.hive_id}',${acceptedNum})">
         <span style="color:var(--b3)">→</span>
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
           onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
@@ -549,16 +558,31 @@ function renderRecPanel(id){
         </select>
         ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderStarterCard('${s.hive_id}','${id}')">x</button>`:''}
       </div>`).join('');
-    const assigned=assignDraft[s.hive_id].reduce((a,r)=>a+(+r.cells||0),0);
-    const stillLeft=rem-assigned;
+    const finAssigned=assignDraft[s.hive_id].reduce((a,r)=>a+(+r.cells||0),0);
+    const stillLeft=acceptedNum-alreadySent-finAssigned;
     return`<div style="background:var(--gl);border-radius:var(--rs);padding:12px;margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span class="chip cS">${H?H.name:'?'}</span>
-        <span class="tsm">${s.cells_in||0} cells</span>
-        <span id="left-${s.hive_id}" style="font-size:12px;font-weight:700;color:${stillLeft>0?'var(--amb)':'var(--g)'};margin-left:auto">${stillLeft>0?stillLeft+' left':'all assigned'}</span>
+        <span class="tsm">${s.cells_in||0} grafted in</span>
+        ${sp!==null?`<span class="chip ${sp>=70?'cok':sp>=40?'cwarn':'cbad'}">${sp}%</span>`:''}
       </div>
-      <div id="rows-${s.hive_id}">${rows}</div>
-      <button class="btn badd bx" style="width:100%;margin-top:4px" onclick="addAD('${s.hive_id}');renderStarterCard('${s.hive_id}','${id}')">+ Another finisher</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px;background:var(--wht);border-radius:var(--rs);border:1.5px solid var(--bdr)">
+        <span class="txs" style="min-width:100px">Cells accepted:</span>
+        <input type="number" min="0" max="${s.cells_in||0}" placeholder="how many started?"
+          value="${accepted}"
+          style="width:80px;padding:8px;text-align:center;font-size:18px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--cr)"
+          oninput="assignDraft['${s.hive_id}_accepted']=+this.value;updateLeftCounter('${s.hive_id}',+this.value - ${alreadySent})">
+        <span class="txs">of ${s.cells_in||0}</span>
+        ${sp!==null?`<span style="font-size:11px;font-weight:700;color:${sp>=70?'var(--g)':sp>=40?'var(--amb)':'var(--red)'};margin-left:4px">${sp}%</span>`:''}
+      </div>
+      <div class="lbl" style="margin-bottom:6px">Allocate to finishers:</div>
+      <div id="rows-${s.hive_id}">${finRows}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
+        <button class="btn badd bx" onclick="addAD('${s.hive_id}');renderStarterCard('${s.hive_id}','${id}')">+ Another finisher</button>
+        <span id="left-${s.hive_id}" style="font-size:12px;font-weight:700;color:${stillLeft>0?'var(--amb)':stillLeft===0&&acceptedNum>0?'var(--g)':'var(--b3)'}">
+          ${acceptedNum>0?(stillLeft>0?stillLeft+' left to allocate':alreadySent>0||finAssigned>0?'all allocated':''):'Enter accepted cells above'}
+        </span>
+      </div>
     </div>`;
   }).join('');
 
@@ -634,6 +658,10 @@ function saveAssign(gid){
   const estCap=d.add(5,'day').format('YYYY-MM-DD');const estOut=d.add(10,'day').format('YYYY-MM-DD');
   let any=false;
   (g.starters||[]).forEach(s=>{
+    // Save cells_accepted if entered
+    const accepted=assignDraft[s.hive_id+'_accepted'];
+    if(accepted!=null&&accepted!=='')s.cells_accepted=+accepted;
+    // Save finisher assignments
     const rows=assignDraft[s.hive_id]||[];
     rows.forEach(row=>{
       const cells=+row.cells;const finId=row.fin;
@@ -643,9 +671,11 @@ function saveAssign(gid){
       else{if(!g.finishers)g.finishers=[];g.finishers.push({hive_id:finId,cells_received:cells,sources:[{sid:s.hive_id,count:cells}],capped:null,out:null,mated:null,capped_date:estCap,out_date:estOut});}
       any=true;
     });
+    // Allow saving accepted cells even without finisher assignments
+    if(accepted!=null&&accepted!=='')any=true;
   });
-  if(!any){toast('Enter cells and select a finisher');return;}
-  stamp(g);save();toast('Assignments saved');assignDraft={};renderRecPanel(gid);
+  if(!any){toast('Enter accepted cells or assign to a finisher');return;}
+  stamp(g);save();toast('Saved');assignDraft={};renderRecPanel(gid);
 }
 
 function saveExtra(gid){
@@ -740,14 +770,16 @@ let assignDraft={};
 function renderStarterCard(sid, gid){
   const g=gById(gid);if(!g)return;
   const s=(g.starters||[]).find(x=>x.hive_id===sid);if(!s)return;
-  const H=hById(sid);
   const finishers=numSort(hByType('finisher'));
   if(!assignDraft[sid])assignDraft[sid]=[{cells:'',fin:''}];
+  const accepted=s.cells_accepted!=null?s.cells_accepted:(assignDraft[sid+'_accepted']??'');
+  const acceptedNum=+accepted||0;
+  const alreadySent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===sid);return a+(src?src.count:0);},0);
   const rows=assignDraft[sid].map((row,ri)=>`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
         style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
-        oninput="setAD('${sid}',${ri},'cells',+this.value);updateLeftCounter('${sid}',${s.cells_in||0})">
+        oninput="setAD('${sid}',${ri},'cells',+this.value);updateLeftCounter('${sid}',${acceptedNum}-${alreadySent})">
       <span style="color:var(--b3)">→</span>
       <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
         onchange="setAD('${sid}',${ri},'fin',this.value)">
@@ -758,8 +790,7 @@ function renderStarterCard(sid, gid){
     </div>`).join('');
   const rowsEl=document.getElementById('rows-'+sid);
   if(rowsEl)rowsEl.innerHTML=rows;
-  // Update counter
-  updateLeftCounter(sid, s.cells_in||0);
+  updateLeftCounter(sid, acceptedNum-alreadySent);
 }
 
 function updateLeftCounter(sid, totalIn){
@@ -825,7 +856,7 @@ function rCal(){
   const cols=Array.from({length:days},(_,i)=>minD.add(i,'day'));
   const td=today();
   let pm='';
-  const mrow=cols.map(c=>{const mo=c.format('MMM YY');if(mo!==pm){pm=mo;return`<th style="text-align:left;background:#2D5A3D;color:var(--gm)">${mo}</th>`;}return`<th style="background:#2D5A3D"></th>`;}).join('');
+  const mrow=cols.map(c=>{const mo=c.format('MMM YY');if(mo!==pm){pm=mo;return`<th style="text-align:left;background:#3D5432;color:var(--gm)">${mo}</th>`;}return`<th style="background:#3D5432"></th>`;}).join('');
   const drow=cols.map(c=>{const it=c.format('YYYY-MM-DD')===td;return`<th style="padding:3px 4px;text-align:center;font-size:10px;background:${it?'var(--gm)':'var(--gl)'};color:${it?'#14532D':'var(--b3)'};font-weight:${it?'800':'400'}">${c.format('D')}</th>`;}).join('');
   const sorted=G.slice().sort((a,b)=>{const ac=gDone(a),bc=gDone(b);return ac!==bc?ac?1:-1:b.date.localeCompare(a.date);});
   let lastId=null;
@@ -844,7 +875,7 @@ function rCal(){
   return`<div class="card" style="padding:12px 8px"><div class="chd">Calendar</div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table style="border-collapse:collapse;font-size:10px">
-        <thead><tr><th style="background:#2D5A3D;color:var(--gm);padding:3px 8px">Batch</th><th style="background:#2D5A3D;color:var(--gm);padding:3px 8px">Hive</th>${mrow}</tr>
+        <thead><tr><th style="background:#3D5432;color:var(--gm);padding:3px 8px">Batch</th><th style="background:#3D5432;color:var(--gm);padding:3px 8px">Hive</th>${mrow}</tr>
           <tr><td style="background:var(--gl);padding:3px 8px"></td><td style="background:var(--gl)"></td>${drow}</tr>
         </thead><tbody>${rows}</tbody>
       </table>
