@@ -933,7 +933,7 @@ function rGraftForm() {
   const saRows = (f.starter_allocations||[]).map((sa, i) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--wax2);border-radius:var(--rs);background:var(--cream)"
-        onchange="graftForm.starter_allocations[${i}].starter_id=this.value">
+        onchange="graftForm.starter_allocations[${i}].starter_id=this.value;console.log('SA updated:',graftForm.starter_allocations)">
         <option value="">Select starter...</option>
         ${starters.map(s=>`<option value="${s.id}" ${sa.starter_id===s.id?'selected':''}>${s.name}</option>`).join('')}
       </select>
@@ -1081,13 +1081,14 @@ function saveGraft() {
   const savedId = g.id;
   const wasEdit = !!f.id;
   graftForm = null;
-  toast('Graft saved');
+  // Verify save actually worked
+  const check = gById(savedId);
+  const saCount = check?.starter_allocations?.length || 0;
+  const saTotal = check?.starter_allocations?.reduce((a,s)=>a+(s.cells_in||0),0) || 0;
+  toast('Saved — ' + saCount + ' starters, ' + saTotal + ' cells');
+  go('dash');
   if (wasEdit) {
-    // Go back to record panel so user can immediately assign finishers
-    go('dash');
-    setTimeout(() => openRecordPanel(savedId), 100);
-  } else {
-    go('dash');
+    setTimeout(() => openRecordPanel(savedId), 200);
   }
 }
 
