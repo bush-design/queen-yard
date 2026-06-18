@@ -1136,12 +1136,13 @@ function openRecordPanel(id) {
 
   // Day 1 section: shown when no finisher records yet
   // Build starter-centric day1 UI
-  const day1Section = (!isA && frecs.length===0) ? (
+  const day1Section = !isA ? (
     sAllocs.length > 0
       ? buildDay1Section(id, sAllocs)
-      : `<div class="card" style="border:2px solid var(--amber)">
-          <div class="card-hd" style="color:var(--amber)">Day 1 — Assign cells to finishers</div>
-          <p class="t-sm">No starters found on this graft. <button class="btn btn-o btn-sm" onclick="closePanel();editGraft('${id}')">Edit graft to add starters</button></p>
+      : `<div class="card" style="border:1.5px solid var(--wax2)">
+          <div class="card-hd">Assign cells to finishers</div>
+          <p class="t-sm" style="margin-bottom:10px">No starters on this graft yet.</p>
+          <button class="btn btn-o btn-sm" onclick="closePanel();editGraft('${id}')">Edit graft to add starters</button>
          </div>`
   ) : '';
 
@@ -1305,10 +1306,11 @@ function buildDay1Section(gid, sAllocs) {
     </div>`;
   }).join('');
 
+  const hasExisting = (gById(gid)?.finisher_records||[]).length > 0;
   return `<div class="card" style="border:2px solid var(--amber)">
-    <div class="card-hd" style="color:var(--amber)">Day 1 — Assign cells to finishers</div>
+    <div class="card-hd" style="color:var(--amber)">${hasExisting ? 'Add more cells to finishers' : 'Assign cells to finishers'}</div>
     <p class="t-sm" style="margin-bottom:12px">
-      For each starter, enter how many cells go to each finisher.
+      Enter how many cells from each starter go to each finisher.
     </p>
     <div id="day1-assignments">${rows}</div>
     <button class="btn btn-p btn-block mt12" onclick="saveDay1('${gid}')">Save assignments</button>
