@@ -594,27 +594,35 @@ function renderRecPanel(id){
   const assignRows=(g.starters||[]).map(s=>{
     const H=hById(s.hive_id);
     const alreadySent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
-    // Use cells_accepted if already confirmed, otherwise show input
     const accepted = s.cells_accepted != null ? s.cells_accepted : (assignDraft[s.hive_id+'_accepted'] ?? '');
     const acceptedNum = +accepted || 0;
-    const acceptedConfirmed = s.cells_accepted != null;
     const sp = acceptedNum > 0 ? pct(acceptedNum, s.cells_in||0) : null;
-    if(!assignDraft[s.hive_id])assignDraft[s.hive_id]=[{cells:'',fin:''}];
+    // Pre-populate assignDraft rows from saved finisher sources if not already loaded for this starter
+    if(!assignDraft[s.hive_id]){
+      const savedRows=[];
+      (g.finishers||[]).forEach(f=>{
+        (f.sources||[]).forEach(src=>{
+          if(src.sid===s.hive_id) savedRows.push({cells:src.count, fin:f.hive_id, saved:true});
+        });
+      });
+      assignDraft[s.hive_id]=savedRows.length?savedRows:[{cells:'',fin:''}];
+    }
     const finRows=assignDraft[s.hive_id].map((row,ri)=>`
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
-          style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+          style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
           oninput="setAD('${s.hive_id}',${ri},'cells',+this.value);updateLeftCounter('${s.hive_id}',${acceptedNum})">
         <span style="color:var(--b3)">→</span>
-        <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+        <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
           onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
           <option value="">Select F...</option>
           ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
         </select>
+        ${row.saved?'<span class="chip cok" style="font-size:9px">saved</span>':''}
         ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderStarterCard('${s.hive_id}','${id}')">x</button>`:''}
       </div>`).join('');
     const finAssigned=assignDraft[s.hive_id].reduce((a,r)=>a+(+r.cells||0),0);
-    const stillLeft=acceptedNum-alreadySent-finAssigned;
+    const stillLeft=acceptedNum-finAssigned;
     return`<div style="background:var(--gl);border-radius:var(--rs);padding:12px;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span class="chip cS">${H?H.name:'?'}</span>
@@ -626,7 +634,7 @@ function renderRecPanel(id){
         <input type="number" min="0" max="${s.cells_in||0}" placeholder="how many started?"
           value="${accepted}"
           style="width:80px;padding:8px;text-align:center;font-size:18px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--cr)"
-          oninput="assignDraft['${s.hive_id}_accepted']=+this.value;updateLeftCounter('${s.hive_id}',+this.value - ${alreadySent})">
+          oninput="assignDraft['${s.hive_id}_accepted']=+this.value;updateLeftCounter('${s.hive_id}',+this.value)">
         <span class="txs">of ${s.cells_in||0}</span>
         ${sp!==null?`<span style="font-size:11px;font-weight:700;color:${sp>=70?'var(--g)':sp>=40?'var(--amb)':'var(--red)'};margin-left:4px">${sp}%</span>`:''}
       </div>
@@ -635,7 +643,7 @@ function renderRecPanel(id){
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
         <button class="btn badd bx" onclick="addAD('${s.hive_id}');renderStarterCard('${s.hive_id}','${id}')">+ Another finisher</button>
         <span id="left-${s.hive_id}" style="font-size:12px;font-weight:700;color:${stillLeft>0?'var(--amb)':stillLeft===0&&acceptedNum>0?'var(--g)':'var(--b3)'}">
-          ${acceptedNum>0?(stillLeft>0?stillLeft+' left to allocate':alreadySent>0||finAssigned>0?'all allocated':''):'Enter accepted cells above'}
+          ${acceptedNum>0?(stillLeft>0?stillLeft+' left to allocate':'all allocated'):'Enter accepted cells above'}
         </span>
       </div>
     </div>`;
@@ -651,6 +659,22 @@ function renderRecPanel(id){
     const estOut=f.out_date||d.add(10,'day').format('YYYY-MM-DD');
     const wkndO=isWknd(estOut);
     const srcTxt=(f.sources||[]).map(s=>{const H2=hById(s.sid);return(H2?H2.name:'?')+':'+s.count;}).join(' + ');
+    // Yard allocation — only relevant once cells are marked out
+    const hasOut = f.out!=null && f.out>0;
+    if(!f.yards) f.yards=[];
+    const yardAllocated = f.yards.reduce((a,y)=>a+(+y.cells||0),0);
+    const yardLeft = (f.out||0)-yardAllocated;
+    const yardRows = f.yards.map((y,yi)=>`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input type="number" min="0" placeholder="cells" value="${y.cells||''}"
+          style="width:64px;padding:7px;text-align:center;font-size:14px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+          onchange="updYard('${id}',${i},${yi},'cells',+this.value)">
+        <span style="color:var(--b3)">→</span>
+        <input type="text" placeholder="yard name" value="${y.yard||''}"
+          style="flex:1;padding:7px 10px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+          onchange="updYard('${id}',${i},${yi},'yard',this.value)">
+        <button class="btn bd bx" onclick="remYard('${id}',${i},${yi})">x</button>
+      </div>`).join('');
     return`<div class="fr">
       <div class="fr-hd">
         <span class="chip cF">${H?H.name:'?'}</span>
@@ -661,7 +685,7 @@ function renderRecPanel(id){
       <div class="cg">
         <div class="cb"><label>Cells in</label><input type="number" min="0" value="${f.cells_received||''}" onchange="updFin('${id}',${i},'cells_received',+this.value)"></div>
         ${!isA?`<div class="cb"><label>Capped</label><input type="number" min="0" value="${f.capped??''}" onchange="updFin('${id}',${i},'capped',this.value===''?null:+this.value)"><div class="dt" style="color:var(--amb)">${dayN(estCap)} ${fmt(estCap)}</div></div>`:''}
-        <div class="cb"><label>Out</label><input type="number" min="0" value="${f.out??''}" onchange="updFin('${id}',${i},'out',this.value===''?null:+this.value)"><div class="dt" style="color:${wkndO?'var(--red)':'var(--g)'}">${dayN(estOut)} ${fmt(estOut)}${wkndO?' !':''}</div></div>
+        <div class="cb"><label>Out</label><input type="number" min="0" value="${f.out??''}" onchange="updFin('${id}',${i},'out',this.value===''?null:+this.value);renderRecPanel('${id}')"><div class="dt" style="color:${wkndO?'var(--red)':'var(--g)'}">${dayN(estOut)} ${fmt(estOut)}${wkndO?' !':''}</div></div>
       </div>
       <div style="margin-top:8px;max-width:160px">
         <div class="cb" style="background:var(--gl)"><label>Mated</label><input type="number" min="0" value="${f.mated??''}" onchange="updFin('${id}',${i},'mated',this.value===''?null:+this.value)"></div>
@@ -669,6 +693,14 @@ function renderRecPanel(id){
       ${!isA?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
         <div class="field" style="flex:1"><label style="font-size:9px">Capped date</label><input type="date" style="font-size:12px;padding:6px 8px" value="${estCap}" onchange="updFin('${id}',${i},'capped_date',this.value)"></div>
         <div class="field" style="flex:1"><label style="font-size:9px">Out date</label><input type="date" style="font-size:12px;padding:6px 8px" value="${estOut}" onchange="updFin('${id}',${i},'out_date',this.value)"></div>
+      </div>`:''}
+      ${hasOut?`<div style="margin-top:10px;padding:10px;background:var(--cr);border-radius:var(--rs);border:1.5px solid var(--bdr)">
+        <div style="display:flex;align-items:center;margin-bottom:8px">
+          <span class="lbl" style="margin-bottom:0">Allocate to yards</span>
+          <span style="margin-left:auto;font-size:11px;font-weight:700;color:${yardLeft>0?'var(--amb)':'var(--g)'}">${yardLeft>0?yardLeft+' left':'all allocated'}</span>
+        </div>
+        ${yardRows}
+        <button class="btn badd bx" style="width:100%" onclick="addYard('${id}',${i})">+ Add yard</button>
       </div>`:''}
     </div>`;
   }).join('');
@@ -684,23 +716,38 @@ function renderRecPanel(id){
       ${gp!==null?`<div class="lbl">Out / grafted</div>${pctBar(gp)}`:''}
     </div>
     ${(g.starters||[]).length?`<div class="card"><div class="chd">Starters</div>${stSummary}</div>`:''}
-    <div class="card" style="border:2px solid var(--g)">
-      <div class="chd" style="color:var(--g)">Assign cells to finishers</div>
-      ${noStarters?`<p class="tsm">No starters on this graft. <button class="btn bg bx" onclick="startEdit('${id}');closePanel()">Edit to add starters</button></p>`:`
-        <p class="tsm" style="margin-bottom:10px">Enter cells from each starter and select a finisher. Leave blank to skip.</p>
-        ${assignRows}
-        <button class="btn bp bb mt8" onclick="saveAssign('${id}')">Save assignments</button>
-        <div class="dvd"></div>
-        <div class="lbl">Add extra cells to a finisher</div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-            <option value="">Select F...</option>
-            ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
-          </select>
-          <input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-          <button class="btn bp bs" onclick="saveExtra('${id}')">Add</button>
-        </div>`}
-    </div>
+    ${(()=>{
+      // Determine if everything is already allocated (collapse by default if so)
+      const allAllocated = !noStarters && (g.starters||[]).every(s=>{
+        const acc = s.cells_accepted!=null ? s.cells_accepted : 0;
+        const sent = (g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
+        return acc>0 && sent>=acc;
+      });
+      const startOpen = !allAllocated;
+      return `<div class="card" style="border:2px solid var(--g);padding:0;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:18px 18px ${startOpen?'14px':'18px'};cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+          <span style="font-size:15px;font-weight:700;color:var(--g)">Assign cells to finishers</span>
+          ${allAllocated?'<span class="chip cok" style="margin-left:6px">All allocated</span>':''}
+          <span class="chev" style="margin-left:auto;color:var(--g);font-size:18px">${startOpen?'⌄':'›'}</span>
+        </div>
+        <div style="display:${startOpen?'block':'none'};padding:0 18px 18px">
+          ${noStarters?`<p class="tsm">No starters on this graft. <button class="btn bg bx" onclick="startEdit('${id}');closePanel()">Edit to add starters</button></p>`:`
+            <p class="tsm" style="margin-bottom:10px">Enter cells from each starter and select a finisher. Saved rows are highlighted green and stay visible — edit them any time.</p>
+            ${assignRows}
+            <button class="btn bp bb mt8" onclick="saveAssign('${id}')">Save assignments</button>
+            <div class="dvd"></div>
+            <div class="lbl">Add extra cells to a finisher</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+                <option value="">Select F...</option>
+                ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
+              </select>
+              <input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+              <button class="btn bp bs" onclick="saveExtra('${id}')">Add</button>
+            </div>`}
+        </div>
+      </div>`;
+    })()}
     <div class="card">
       <div class="chd">Finisher Records <span class="txs ml">${tGr} grafted · ${tIn} assigned</span></div>
       ${(g.finishers||[]).length?finRows:'<p class="tsm">No finishers assigned yet.</p>'}
@@ -713,22 +760,32 @@ function saveAssign(gid){
   const estCap=d.add(5,'day').format('YYYY-MM-DD');const estOut=d.add(10,'day').format('YYYY-MM-DD');
   let any=false;
   (g.starters||[]).forEach(s=>{
-    // Save cells_accepted if entered
     const accepted=assignDraft[s.hive_id+'_accepted'];
     if(accepted!=null&&accepted!=='')s.cells_accepted=+accepted;
-    // Save finisher assignments
+
+    // First, remove this starter's existing contribution from all finishers
+    // (we're about to rebuild it from the current draft rows)
+    (g.finishers||[]).forEach(f=>{
+      if(!f.sources)return;
+      const exS=f.sources.find(x=>x.sid===s.hive_id);
+      if(exS){ f.cells_received=Math.max(0,(f.cells_received||0)-exS.count); f.sources=f.sources.filter(x=>x.sid!==s.hive_id); }
+    });
+
+    // Now re-add from the current draft rows
     const rows=assignDraft[s.hive_id]||[];
     rows.forEach(row=>{
       const cells=+row.cells;const finId=row.fin;
       if(!cells||!finId)return;
       const ex=(g.finishers||[]).find(f=>f.hive_id===finId);
-      if(ex){ex.cells_received=(ex.cells_received||0)+cells;if(!ex.sources)ex.sources=[];const exS=ex.sources.find(x=>x.sid===s.hive_id);if(exS)exS.count+=cells;else ex.sources.push({sid:s.hive_id,count:cells});}
+      if(ex){ex.cells_received=(ex.cells_received||0)+cells;if(!ex.sources)ex.sources=[];ex.sources.push({sid:s.hive_id,count:cells});}
       else{if(!g.finishers)g.finishers=[];g.finishers.push({hive_id:finId,cells_received:cells,sources:[{sid:s.hive_id,count:cells}],capped:null,out:null,mated:null,capped_date:estCap,out_date:estOut});}
       any=true;
+      row.saved=true;
     });
-    // Allow saving accepted cells even without finisher assignments
     if(accepted!=null&&accepted!=='')any=true;
   });
+  // Drop any finisher records that ended up with zero cells (e.g. row was cleared to blank)
+  g.finishers=(g.finishers||[]).filter(f=>(f.cells_received||0)>0);
   if(!any){toast('Enter accepted cells or assign to a finisher');return;}
   stamp(g);save();toast('Saved');assignDraft={};renderRecPanel(gid);
 }
@@ -746,6 +803,9 @@ function saveExtra(gid){
 
 function updFin(gid,i,k,v){const g=gById(gid);if(!g)return;g.finishers[i][k]=v;stamp(g);save();}
 function remFin(gid,i){const g=gById(gid);if(!g)return;g.finishers.splice(i,1);stamp(g);save();renderRecPanel(gid);}
+function addYard(gid,i){const g=gById(gid);if(!g)return;const f=g.finishers[i];if(!f)return;if(!f.yards)f.yards=[];f.yards.push({cells:'',yard:''});stamp(g);save();renderRecPanel(gid);}
+function updYard(gid,i,yi,k,v){const g=gById(gid);if(!g)return;const f=g.finishers[i];if(!f||!f.yards||!f.yards[yi])return;f.yards[yi][k]=v;stamp(g);save();renderRecPanel(gid);}
+function remYard(gid,i,yi){const g=gById(gid);if(!g)return;const f=g.finishers[i];if(!f||!f.yards)return;f.yards.splice(yi,1);stamp(g);save();renderRecPanel(gid);}
 
 // HIVES
 function rHives(){
