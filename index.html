@@ -272,8 +272,43 @@ function hById(id){return DB.hives.find(h=>h.id===id);}
 function hByType(t){return DB.hives.filter(h=>h.type===t);}
 function gById(id){return DB.grafts.find(g=>g.id===id);}
 function dayN(d){return['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dayjs(d).day()];}
+function relDay(d){
+  const diff=dayjs(d).diff(dayjs(today()),'day');
+  if(diff===0)return'Today';
+  if(diff===1)return'Tomorrow';
+  if(diff===-1)return'Yesterday';
+  if(diff>1&&diff<7)return dayN(d);
+  return null;
+}
 function isWknd(d){const day=dayjs(d).day();return day===0||day===6;}
 function numSort(arr){return arr.slice().sort((a,b)=>{const na=parseInt(a.name.replace(/[^0-9]/g,''))||0,nb=parseInt(b.name.replace(/[^0-9]/g,''))||0;return na!==nb?na-nb:a.name.localeCompare(b.name);});}
+
+// Finisher availability: a finisher is available if it has no active (not-yet-capped) cells in it.
+// excludeGraftId: ignore that graft's own records when checking (so you can top up your own batch freely)
+function finisherAvailable(finisherId, excludeGraftId){
+  const h=hById(finisherId);
+  if(h && h.retired) return false;
+  const td=today();
+  for(const g of DB.grafts){
+    if(excludeGraftId && g.id===excludeGraftId) continue;
+    const f=(g.finishers||[]).find(x=>x.hive_id===finisherId);
+    if(!f) continue;
+    const outDate=f.out_date || gOutDate(g);
+    if(outDate < td) continue; // fully out already, ignore
+    const capDate=f.capped_date || gCapDate(g);
+    if(capDate > td) return false; // still growing — unavailable
+  }
+  return true;
+}
+function sortedFinishersByAvail(excludeGraftId){
+  const sorted=numSort(hByType('finisher'));
+  return sorted.slice().sort((a,b)=>{
+    const aOk=finisherAvailable(a.id,excludeGraftId)?0:1;
+    const bOk=finisherAvailable(b.id,excludeGraftId)?0:1;
+    if(aOk!==bOk) return aOk-bOk;
+    return numSort([a,b]).indexOf(a) - numSort([a,b]).indexOf(b);
+  });
+}
 function pct(n,d){return d?Math.round(n/d*100):null;}
 function pctBar(p){if(p===null)return'';const c=p>=70?'pb-good':p>=40?'pb-ok':'pb-low';return`<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div class="pb-wrap" style="flex:1"><div class="pb ${c}" style="width:${p}%"></div></div><span style="font-size:11px;font-weight:700;color:var(--b2)">${p}%</span></div>`;}
 function gGrafted(g){const s=(g.starters||[]).reduce((a,x)=>a+(x.cells_in||0),0);return s||(g.grafted||0);}
@@ -329,7 +364,16 @@ function rDash(){
         {l:'Mated check',date:d.add(30,'day').format('YYYY-MM-DD'),done:(g.finishers||[]).some(f=>f.mated!=null)}];
     for(const c of checks){if(c.done)continue;const diff=dayjs(c.date).diff(dayjs(),'day');if(diff<=3&&diff>=-2){due.push({g,c,diff});break;}}
   });
-  const dueBanner=due.length?`<div class="due"><div class="due-hd">Action needed</div>${due.map(({g,c,diff})=>{const B=hById(g.breeder_id);const cl=diff<0?'cbad':diff===0?'caut':'cwarn';const lb=diff<0?Math.abs(diff)+'d overdue':diff===0?'Today':'In '+diff+'d';return`<div class="due-row"><div style="flex:1"><strong style="font-size:13px">${fmtF(g.date)} — ${B?B.name:'?'}</strong><div class="txs">${c.l} · ${fmt(c.date)}</div></div><span class="chip ${cl}">${lb}</span><button class="btn bp bx" onclick="openPanel('rec','${g.id}')">Open</button></div>`;}).join('')}</div>`:'';;
+  const dueBanner=due.length?`<div class="due" style="border-width:2px"><div class="due-hd" style="font-size:16px;margin-bottom:10px">⚠ Action needed</div>${due.map(({g,c,diff})=>{const B=hById(g.breeder_id);const rd=relDay(c.date);const urgent=diff<=0;const bg=diff<0?'#fee2e2':diff===0?'#fef3c7':'var(--gl)';const txt=diff<0?'var(--red)':diff===0?'#b45309':'var(--g)';const lb=diff<0?Math.abs(diff)+'d overdue':rd||fmt(c.date);return`<div class="due-row" style="background:${bg};border-radius:var(--rs);padding:12px;border-bottom:none;margin-bottom:8px">
+    <div style="flex:1">
+      <strong style="font-size:14px">${fmtF(g.date)} — ${B?B.name:'?'}</strong>
+      <div class="tsm" style="margin-top:2px">${c.l}</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:20px;font-weight:800;color:${txt};line-height:1">${lb}</div>
+    </div>
+    <button class="btn bp bs" onclick="openPanel('rec','${g.id}')">Open</button>
+  </div>`;}).join('')}</div>`:'';;
   const sorted=G.slice().sort((a,b)=>{const ac=gDone(a),bc=gDone(b);return ac!==bc?ac?1:-1:b.date.localeCompare(a.date);});
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
   return`${dueBanner}
@@ -370,6 +414,12 @@ function rApiary(){
   }).join('');
 }
 
+function gNumber(g){
+  // Stable graft number based on chronological order (1 = earliest date)
+  const allSorted=DB.grafts.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
+  return allSorted.findIndex(x=>x.id===g.id)+1;
+}
+
 function rGraftCard(g){
   const B=hById(g.breeder_id);
   const outDate=gOutDate(g);const tGr=gGrafted(g),tOut=gOut(g);const gp=pct(tOut,tGr);
@@ -385,11 +435,16 @@ function rGraftCard(g){
     <div class="gc-hd" onclick="this.nextElementSibling.classList.toggle('open')">
       <div style="flex:1">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="chip cstd" style="background:var(--g);color:var(--wht)">Graft ${gNumber(g)}</span>
           <strong style="font-size:14px">${fmtF(g.date)}</strong>
           <span class="chip ${isA?'caut':'cstd'}">${isA?'Autumn':'Standard'}</span>
           <span class="chip cB" style="font-size:10px">${B?B.name:'?'}</span>
         </div>
-        <div style="font-size:12px;color:var(--b2);margin-top:3px">Out: <strong style="color:${wknd?'var(--red)':done?'var(--b3)':'var(--g)'}">${wd} ${fmt(outDate)}</strong>${wknd&&!done?' <span style="color:var(--red);font-size:10px;font-weight:700">Weekend</span>':''}${done?' <span class="txs">Done</span>':''}</div>
+        <div style="margin-top:6px">
+          <span class="txs">Out:</span>
+          <span style="font-size:22px;font-weight:800;color:${wknd?'var(--red)':done?'var(--b3)':'var(--g)'};margin-left:4px">${relDay(outDate)||wd} ${fmt(outDate)}</span>
+          ${wknd&&!done?' <span style="color:var(--red);font-size:10px;font-weight:700"> Weekend</span>':''}${done?' <span class="txs">Done</span>':''}
+        </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
         ${!done&&cellsDue>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:''}
@@ -429,8 +484,8 @@ function startEdit(id){initDraft(gById(id));go('graft');}
 function rGraft(){
   if(!draft)initDraft(null);
   const f=draft;
-  const breeders=hByType('breeder');
-  const starters=numSort(hByType('starter'));
+  const breeders=hByType('breeder').filter(h=>!h.retired);
+  const starters=numSort(hByType('starter').filter(h=>!h.retired));
   const isA=f.protocol==='autumn';
   if(!breeders.length)return`<div class="card"><div class="chd">Set up hives first</div><p class="tsm">Add at least one breeder.</p><button class="btn bp mt12" onclick="go('hives')">Set up hives</button></div>`;
   const d=dayjs(f.date);
@@ -508,7 +563,7 @@ function delGraft(id){if(!confirm('Delete this graft?'))return;DB.grafts=DB.graf
 function renderRecPanel(id){
   const g=gById(id);if(!g)return;
   const B=hById(g.breeder_id);const isA=g.protocol==='autumn';
-  document.getElementById('ptitle').textContent=fmtF(g.date)+' -- '+(B?B.name:'?');
+  document.getElementById('ptitle').textContent='Graft '+gNumber(g)+' -- '+fmtF(g.date)+' -- '+(B?B.name:'?');
   document.getElementById('pactions').innerHTML=`<button class="btn bg bx" onclick="startEdit('${id}');closePanel()">Edit</button>`;
   const tGr=gGrafted(g),tOut=gOut(g),tMt=gMated(g);
   const tIn=(g.finishers||[]).reduce((a,f)=>a+(f.cells_received||0),0);
@@ -554,7 +609,7 @@ function renderRecPanel(id){
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
           onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
           <option value="">Select F...</option>
-          ${numSort(finishers).map(f=>`<option value="${f.id}" ${row.fin===f.id?'selected':''}>${f.name}</option>`).join('')}
+          ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
         </select>
         ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderStarterCard('${s.hive_id}','${id}')">x</button>`:''}
       </div>`).join('');
@@ -640,7 +695,7 @@ function renderRecPanel(id){
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
             <option value="">Select F...</option>
-            ${numSort(finishers).map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}
+            ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
           </select>
           <input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
           <button class="btn bp bs" onclick="saveExtra('${id}')">Add</button>
@@ -695,7 +750,7 @@ function remFin(gid,i){const g=gById(gid);if(!g)return;g.finishers.splice(i,1);s
 // HIVES
 function rHives(){
   const all=DB.hives;
-  const list=all.length?numSort(all).map(h=>{const cc=h.type==='breeder'?'cB':h.type==='starter'?'cS':'cF';const ll=h.log?.length?h.log[h.log.length-1]:null;return`<div class="hrow" onclick="openPanel('hive','${h.id}')"><div style="flex:1"><div style="font-weight:700;font-size:14px">${h.name} <span class="chip ${cc}" style="font-size:10px">${h.type}</span></div><div class="txs">${h.queen_status||'unknown'} · Str ${h.strength||'?'}/5${ll?' · '+fmt(ll.date)+' '+ll.type:''}</div></div><span style="color:var(--b3)">›</span></div>`;}).join(''):'<div class="empty"><p>No hives yet.</p></div>';
+  const list=all.length?numSort(all).map(h=>{const cc=h.type==='breeder'?'cB':h.type==='starter'?'cS':'cF';const ll=h.log?.length?h.log[h.log.length-1]:null;const ret=h.retired;return`<div class="hrow" style="${ret?'opacity:.55':''}" onclick="openPanel('hive','${h.id}')"><div style="flex:1"><div style="font-weight:700;font-size:14px">${h.name} <span class="chip ${cc}" style="font-size:10px">${h.type}</span>${ret?'<span class="chip" style="background:#f3f4f6;color:#6b7280;font-size:10px;margin-left:4px">Retired</span>':''}</div><div class="txs">${ret?(h.retired_reason||'Retired'):(h.queen_status||'unknown')+' · Str '+(h.strength||'?')+'/5'+(ll?' · '+fmt(ll.date)+' '+ll.type:'')}</div></div><span style="color:var(--b3)">›</span></div>`;}).join(''):'<div class="empty"><p>No hives yet.</p></div>';
   return`<div class="card">
     <div class="chd">Hive Manager <span class="ml"><button class="btn bp bx" onclick="openPanel('bulk',null)">Bulk log</button></span></div>
     <div class="brow" style="margin-bottom:12px">
@@ -737,10 +792,16 @@ function doAddHive(type,btn){
 function renderHivePanel(id){
   const h=hById(id);if(!h)return;
   const cc=h.type==='breeder'?'cB':h.type==='starter'?'cS':'cF';
-  document.getElementById('ptitle').innerHTML=`${h.name} <span class="chip ${cc}">${h.type}</span>`;
+  const retired=!!h.retired;
+  document.getElementById('ptitle').innerHTML=`${h.name} <span class="chip ${cc}">${h.type}</span>${retired?'<span class="chip" style="background:#f3f4f6;color:#6b7280;margin-left:6px">Retired</span>':''}`;
   document.getElementById('pactions').innerHTML=`<button class="btn bd bx" onclick="delHive('${id}')">Delete</button>`;
   const logHtml=(h.log||[]).slice().reverse().map(e=>{const types=(e.types||[e.type].filter(Boolean));const labels=types.map(t=>{const lt=LOG_TYPES.find(x=>x.v===t);return lt?lt.l:t;});return`<div class="log-entry"><div style="font-size:10px;color:var(--b3);font-weight:600">${fmtF(e.date)}</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin:3px 0">${labels.map(l=>`<span class="chip cok" style="font-size:9px;padding:2px 6px">${l}</span>`).join('')}</div>${e.note?`<div class="tsm">${e.note}</div>`:''}</div>`;}).join('')||'<p class="tsm">No entries.</p>';
   document.getElementById('pbody').innerHTML=`
+    ${retired?`<div class="card" style="border:1.5px solid #d1d5db;background:#f9fafb">
+      <div class="chd" style="color:#6b7280">Retired</div>
+      <p class="tsm">${h.retired_date?fmtF(h.retired_date)+' — ':''}${h.retired_reason||'No reason given'}</p>
+      <button class="btn bo bs mt8" onclick="unretireHive('${id}')">Reactivate hive</button>
+    </div>`:''}
     <div class="card"><div class="chd">Settings</div>
       <div class="r2">
         <div class="field"><label>Name</label><input type="text" value="${h.name}" onchange="updH('${id}','name',this.value)"></div>
@@ -755,6 +816,12 @@ function renderHivePanel(id){
         </select></div>
       <div class="field mt12"><label>Notes</label><textarea onchange="updH('${id}','notes',this.value)">${h.notes||''}</textarea></div>
     </div>
+    ${!retired?`<div class="card">
+      <div class="chd">Retire this hive</div>
+      <p class="tsm" style="margin-bottom:8px">Stops it appearing as available for new grafts/assignments, but keeps its history.</p>
+      <div class="field"><label>Reason</label><textarea id="retire-reason" placeholder="e.g. drone layer, dead out, combined with another hive..."></textarea></div>
+      <button class="btn bd bb mt8" onclick="retireHive('${id}')">Retire hive</button>
+    </div>`:''}
     <div class="card"><div class="chd">Log Entry</div>
       <div class="field"><label>Date</label><input type="date" id="ld" value="${today()}"></div>
       <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
@@ -762,6 +829,21 @@ function renderHivePanel(id){
       <button class="btn bp bb mt8" onclick="addLog('${id}')">Add entry</button>
     </div>
     <div class="card"><div class="chd">Log <span class="txs ml">${(h.log||[]).length} entries</span></div>${logHtml}</div>`;
+}
+
+function retireHive(id){
+  const h=hById(id);if(!h)return;
+  const reason=document.getElementById('retire-reason')?.value.trim();
+  if(!reason){toast('Enter a reason');return;}
+  h.retired=true;h.retired_reason=reason;h.retired_date=today();
+  h.updated_at=new Date().toISOString();
+  save();toast(h.name+' retired');renderHivePanel(id);render();
+}
+function unretireHive(id){
+  const h=hById(id);if(!h)return;
+  h.retired=false;h.retired_reason='';h.retired_date='';
+  h.updated_at=new Date().toISOString();
+  save();toast(h.name+' reactivated');renderHivePanel(id);render();
 }
 
 // Assign draft state — reset each time panel opens
@@ -784,7 +866,7 @@ function renderStarterCard(sid, gid){
       <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
         onchange="setAD('${sid}',${ri},'fin',this.value)">
         <option value="">Select F...</option>
-        ${numSort(finishers).map(f=>`<option value="${f.id}" ${row.fin===f.id?'selected':''}>${f.name}</option>`).join('')}
+        ${sortedFinishersByAvail(gid).map(f=>{const av=finisherAvailable(f.id,gid);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
       </select>
       ${assignDraft[sid].length>1?`<button class="btn bd bx" onclick="removeAD('${sid}',${ri});renderStarterCard('${sid}','${gid}')">x</button>`:''}
     </div>`).join('');
