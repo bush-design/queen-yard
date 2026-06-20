@@ -384,13 +384,13 @@ function rDash(){
       <div class="stat"><div class="n">${sp!==null?sp+'%':'--'}</div><div class="l">Season %</div></div>
     </div>
     <div class="card">
+      <div class="chd">Graft Batches <span class="ml"><button class="btn bp bx" onclick="go('graft')">+ New graft</button></span></div>
+      ${sorted.length?sorted.map(rGraftCard).join(''):'<div class="empty"><p>No grafts yet.</p></div>'}
+    </div>
+    <div class="card">
       <div class="chd">Apiary <span class="txs">${bC}B · ${sC}S · ${fC}F</span>
         <span class="ml"><button class="btn bg bx" onclick="go('hives')">Manage</button></span></div>
       ${rApiary()}
-    </div>
-    <div class="card">
-      <div class="chd">Graft Batches <span class="ml"><button class="btn bp bx" onclick="go('graft')">+ New graft</button></span></div>
-      ${sorted.length?sorted.map(rGraftCard).join(''):'<div class="empty"><p>No grafts yet.</p></div>'}
     </div>`;
 }
 
