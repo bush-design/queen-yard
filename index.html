@@ -362,19 +362,19 @@ function go(p){
   document.querySelectorAll('nav button').forEach((b,i)=>b.classList.toggle('active',PAGES[i]===p));
   document.querySelectorAll('.bbt').forEach((b,i)=>b.classList.toggle('active',PAGES[i]===p));
   render();
-  if(p==='cal') setTimeout(centreCalToday, 50);
+  if(p==='cal') requestAnimationFrame(()=>requestAnimationFrame(()=>centreCalToday(3)));
 }
-function centreCalToday(){
+function centreCalToday(retries){
   const scroller=document.getElementById('cal-scroll');
-  const marker=document.querySelector('#cal-scroll th[data-today]') || document.querySelector('#cal-scroll th[style*="14532D"][style*="border-left"]');
-  if(!scroller) return;
-  // Find the th cell with the black outline (today column) by scanning all th in the second header row
+  if(!scroller){ if(retries>0) setTimeout(()=>centreCalToday(retries-1),100); return; }
   const ths=[...scroller.querySelectorAll('thead tr:nth-child(2) th')];
   const todayTh=ths.find(th=>th.style.borderLeft && th.style.borderLeft.includes('14532D'));
-  if(todayTh){
-    const target=todayTh.offsetLeft - (scroller.clientWidth/2) + (todayTh.offsetWidth/2);
-    scroller.scrollLeft = Math.max(0, target);
+  if(!todayTh || scroller.clientWidth===0){
+    if(retries>0) setTimeout(()=>centreCalToday(retries-1),100);
+    return;
   }
+  const target=todayTh.offsetLeft - (scroller.clientWidth/2) + (todayTh.offsetWidth/2);
+  scroller.scrollLeft = Math.max(0, target);
 }
 function render(){
   const el=document.getElementById('app');
