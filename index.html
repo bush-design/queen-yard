@@ -694,10 +694,10 @@ function renderRecPanel(id){
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
           style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
-          oninput="setAD('${s.hive_id}',${ri},'cells',+this.value);updateLeftCounter('${s.hive_id}',${acceptedNum})">
+          oninput="setAD('${s.hive_id}',${ri},'cells',+this.value);updateLeftCounter('${s.hive_id}',${acceptedNum});refreshAllFinDropdowns('${id}')">
         <span style="color:var(--b3)">→</span>
-        <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
-          onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
+        <select data-fin-select="1" style="flex:1;padding:8px;font-size:14px;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
+          onchange="setAD('${s.hive_id}',${ri},'fin',this.value);refreshAllFinDropdowns('${id}')">
           <option value="">Select F...</option>
           ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);const sum=finisherAllocSummary(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${sum?' — '+sum:av?' available':' growing'}</option>`;}).join('')}
         </select>
@@ -758,9 +758,9 @@ function renderRecPanel(id){
         <button class="btn bd bx" onclick="remFin('${id}',${i})">x</button>
       </div>
       <div class="cg">
-        <div class="cb"><label>Cells in</label><input type="number" min="0" value="${f.cells_received||''}" onchange="updFin('${id}',${i},'cells_received',+this.value)"></div>
-        ${!isA?`<div class="cb"><label>Capped</label><input type="number" min="0" value="${f.capped??''}" onchange="updFin('${id}',${i},'capped',this.value===''?null:+this.value)"><div class="dt" style="color:var(--amb)">${dayN(estCap)} ${fmt(estCap)}</div></div>`:''}
-        <div class="cb"><label>Out</label><input type="number" min="0" value="${f.out??''}" onchange="updFin('${id}',${i},'out',this.value===''?null:+this.value)"><div class="dt" style="color:${wkndO?'var(--red)':'var(--g)'}">${dayN(estOut)} ${fmt(estOut)}${wkndO?' !':''}</div></div>
+        <div class="cb" style="${stage==='Larval'||stage==='Growing'?'background:#dbeafe;border-color:#93c5fd':''}"><label>Started</label><input type="number" min="0" value="${f.cells_received||''}" onchange="updFin('${id}',${i},'cells_received',+this.value)"></div>
+        ${!isA?`<div class="cb" style="${stage==='Capped'?'background:#fef3c7;border-color:#fcd34d':''}"><label>Capped</label><input type="number" min="0" value="${f.capped??''}" onchange="updFin('${id}',${i},'capped',this.value===''?null:+this.value)"><div class="dt" style="color:var(--amb)">${dayN(estCap)} ${fmt(estCap)}</div></div>`:''}
+        <div class="cb" style="${stage==='Out'?'background:var(--gl);border-color:var(--gm)':''}"><label>Out</label><input type="number" min="0" value="${f.out??''}" onchange="updFin('${id}',${i},'out',this.value===''?null:+this.value)"><div class="dt" style="color:${wkndO?'var(--red)':'var(--g)'}">${dayN(estOut)} ${fmt(estOut)}${wkndO?' !':''}</div></div>
       </div>
       <div style="margin-top:8px;max-width:160px">
         <div class="cb" style="background:var(--gl)"><label>Mated</label><input type="number" min="0" value="${f.mated??''}" onchange="updFin('${id}',${i},'mated',this.value===''?null:+this.value)"></div>
@@ -1036,10 +1036,10 @@ function renderStarterCard(sid, gid){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <input type="number" min="0" placeholder="cells" value="${row.cells||''}"
         style="width:72px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
-        oninput="setAD('${sid}',${ri},'cells',+this.value);updateLeftCounter('${sid}',${acceptedNum}-${alreadySent})">
+        oninput="setAD('${sid}',${ri},'cells',+this.value);updateLeftCounter('${sid}',${acceptedNum}-${alreadySent});refreshAllFinDropdowns('${gid}')">
       <span style="color:var(--b3)">→</span>
-      <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
-        onchange="setAD('${sid}',${ri},'fin',this.value)">
+      <select data-fin-select="1" style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
+        onchange="setAD('${sid}',${ri},'fin',this.value);refreshAllFinDropdowns('${gid}')">
         <option value="">Select F...</option>
         ${sortedFinishersByAvail(gid).map(f=>{const av=finisherAvailable(f.id,gid);const sum=finisherAllocSummary(f.id,gid);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${sum?' — '+sum:av?' available':' growing'}</option>`;}).join('')}
       </select>
@@ -1058,6 +1058,23 @@ function updateLeftCounter(sid, totalIn){
   if(el){el.textContent=stillLeft>0?stillLeft+' left':'all assigned';el.style.color=stillLeft>0?'var(--amb)':'var(--g)';}
 }
 function setAD(sid,ri,key,val){if(!assignDraft[sid])assignDraft[sid]=[{cells:'',fin:''}];assignDraft[sid][ri][key]=val;}
+
+// Re-render every finisher <select> on the panel so allocation summaries stay live
+// across all starter cards as the user types into any of them.
+function refreshAllFinDropdowns(gid){
+  document.querySelectorAll('select[data-fin-select="1"]').forEach(sel=>{
+    const curVal=sel.value;
+    const fins=sortedFinishersByAvail(gid);
+    sel.innerHTML='<option value="">Select F...</option>'+fins.map(f=>{
+      const av=finisherAvailable(f.id,gid);
+      const sum=finisherAllocSummary(f.id,gid);
+      const selAttr=curVal===f.id?' selected':'';
+      const style=av?'':'color:#b0b0b0';
+      const label=(av?'✓ ':'⊘ ')+hiveLabel(f)+(sum?' — '+sum:av?' available':' growing');
+      return `<option value="${f.id}"${selAttr} style="${style}">${label}</option>`;
+    }).join('');
+  });
+}
 function addAD(sid){if(!assignDraft[sid])assignDraft[sid]=[{cells:'',fin:''}];assignDraft[sid].push({cells:'',fin:''});}
 function removeAD(sid,ri){if(assignDraft[sid])assignDraft[sid].splice(ri,1);if(!assignDraft[sid]||!assignDraft[sid].length)assignDraft[sid]=[{cells:'',fin:''}];}
 
