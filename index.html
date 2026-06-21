@@ -282,6 +282,13 @@ function relDay(d){
 }
 function isWknd(d){const day=dayjs(d).day();return day===0||day===6;}
 function numSort(arr){return arr.slice().sort((a,b)=>{const na=parseInt(a.name.replace(/[^0-9]/g,''))||0,nb=parseInt(b.name.replace(/[^0-9]/g,''))||0;return na!==nb?na-nb:a.name.localeCompare(b.name);});}
+function hiveLabel(h){
+  if(!h) return '?';
+  const note=(h.notes||'').trim();
+  if(!note) return h.name;
+  const short=note.length>24?note.slice(0,24)+'…':note;
+  return h.name+' — '+short;
+}
 
 // Finisher availability: a finisher is available if it has no active (not-yet-capped) cells in it.
 // excludeGraftId: ignore that graft's own records when checking (so you can top up your own batch freely)
@@ -374,7 +381,8 @@ function rDash(){
     </div>
     <button class="btn bp bs" onclick="openPanel('rec','${g.id}')">Open</button>
   </div>`;}).join('')}</div>`:'';;
-  const sorted=G.slice().sort((a,b)=>{const ac=gDone(a),bc=gDone(b);return ac!==bc?ac?1:-1:b.date.localeCompare(a.date);});
+  const active=G.filter(g=>!gDone(g)).sort((a,b)=>b.date.localeCompare(a.date));
+  const completed=G.filter(g=>gDone(g)).sort((a,b)=>b.date.localeCompare(a.date));
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
   return`${dueBanner}
     <div class="stats">
@@ -385,7 +393,18 @@ function rDash(){
     </div>
     <div class="card">
       <div class="chd">Graft Batches <span class="ml"><button class="btn bp bx" onclick="go('graft')">+ New graft</button></span></div>
-      ${sorted.length?sorted.map(rGraftCard).join(''):'<div class="empty"><p>No grafts yet.</p></div>'}
+      ${active.length?active.map(rGraftCard).join(''):(completed.length?'<p class="tsm" style="padding:8px 0">No active batches.</p>':'<div class="empty"><p>No grafts yet.</p></div>')}
+      ${completed.length?`<div style="margin-top:${active.length?'10px':'0'}">
+        <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--gl);border-radius:var(--rs);cursor:pointer"
+          onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+          <span style="font-size:13px;font-weight:700;color:var(--b2)">Completed batches</span>
+          <span class="chip" style="background:var(--wht);color:var(--b2)">${completed.length}</span>
+          <span class="chev ml" style="color:var(--b3);font-size:16px">›</span>
+        </div>
+        <div style="display:none;margin-top:8px;opacity:.7">
+          ${completed.map(rGraftCard).join('')}
+        </div>
+      </div>`:''}
     </div>
     <div class="card">
       <div class="chd">Apiary <span class="txs">${bC}B · ${sC}S · ${fC}F</span>
@@ -430,7 +449,13 @@ function rGraftCard(g){
     :[{l:'Graft',d:g.date},{l:'Finishers',d:d.add(1,'day').format('YYYY-MM-DD')},{l:'Capped',d:gCapDate(g)},{l:'Out',d:outDate},{l:'Mated',d:d.add(30,'day').format('YYYY-MM-DD')}];
   const tl=stages.map(s=>{const c=isPast(s.d)?'done':isToday(s.d)?'now':'';return`<div class="tl-n"><div class="tl-d ${c}">${isPast(s.d)?'v':'o'}</div><div class="tl-l">${s.l}</div><div class="tl-dt">${fmt(s.d)}</div></div>`;}).join('');
   const starterBoxes=(g.starters||[]).map(s=>{const H=hById(s.hive_id);const sent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);const sp2=pct(sent,s.cells_in||0);return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div class="txs">${s.cells_in||0} in</div>${sp2!==null?`<div style="font-size:10px;font-weight:700;color:${sp2>=70?'var(--g)':sp2>=40?'var(--amb)':'var(--red)'}">${sp2}%</div>`:''}</div>`;}).join('');
-  const finBoxes=(g.finishers||[]).map(f=>{const H=hById(f.hive_id);const fp=pct(f.out||0,f.cells_received||0);return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div class="txs">${f.cells_received||0} in</div><div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${f.out??'--'}</div>${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${fp}%</div>`:''}</div>`;}).join('');
+  const finBoxes=(g.finishers||[]).map(f=>{const H=hById(f.hive_id);const fp=pct(f.out||0,f.cells_received||0);
+    const estCap2=f.capped_date||gCapDate(g);
+    let stg,stgC;
+    if(f.out!=null&&f.out>0){stg='Out';stgC='var(--g)';}
+    else if((f.capped!=null&&f.capped>0)||estCap2<=today()){stg='Capped';stgC='#92400e';}
+    else{stg='Larval';stgC='#1e40af';}
+    return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div style="font-size:9px;font-weight:700;color:${stgC}">${stg}</div><div class="txs">${f.cells_received||0} in</div><div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${f.out??'--'}</div>${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${fp}%</div>`:''}</div>`;}).join('');
   return`<div class="gc">
     <div class="gc-hd" onclick="this.nextElementSibling.classList.toggle('open')">
       <div style="flex:1">
@@ -453,17 +478,46 @@ function rGraftCard(g){
     </div>
     <div class="gc-body">
       <div class="tl">${tl}</div>
-      <div style="display:flex;align-items:flex-start;gap:5px;flex-wrap:wrap;margin:8px 0">
-        <div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center">
-          <div style="font-size:11px;font-weight:700;color:var(--g)">${B?B.name:'?'}</div>
-          <div class="txs">${tGr} grafted</div>
+      ${gp!==null?`<div class="txs mt8">Out / grafted</div>${pctBar(gp)}`:''}
+
+      <div class="mt12" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
+          onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+          <span style="font-size:12px;font-weight:700">Breeder → Starters</span>
+          <span class="chev ml" style="color:var(--b3)">›</span>
         </div>
-        ${(g.starters||[]).length?'<div style="color:var(--b3);font-size:16px;padding-top:8px">→</div>':''}
-        <div style="display:flex;gap:4px;flex-wrap:wrap">${starterBoxes}</div>
-        ${(g.finishers||[]).length?'<div style="color:var(--b3);font-size:16px;padding-top:8px">→</div>':''}
-        <div style="display:flex;gap:4px;flex-wrap:wrap">${finBoxes}</div>
+        <div style="display:none;align-items:flex-start;gap:5px;flex-wrap:wrap;padding:10px 12px">
+          <div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center">
+            <div style="font-size:11px;font-weight:700;color:var(--g)">${B?B.name:'?'}</div>
+            <div class="txs">${tGr} grafted</div>
+          </div>
+          ${(g.starters||[]).length?'<div style="color:var(--b3);font-size:16px;padding-top:8px">→</div>':''}
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${starterBoxes||'<span class="txs">No starters yet</span>'}</div>
+        </div>
       </div>
-      ${gp!==null?`<div class="txs">Out / grafted</div>${pctBar(gp)}`:''}
+
+      <div class="mt8" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
+          onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+          <span style="font-size:12px;font-weight:700">Starters → Finishers</span>
+          <span class="chev ml" style="color:var(--b3)">›</span>
+        </div>
+        <div style="display:none;align-items:center;gap:4px;flex-wrap:wrap;padding:10px 12px">
+          ${finBoxes||'<span class="txs">Not assigned yet</span>'}
+        </div>
+      </div>
+
+      ${(g.yards||[]).length?`<div class="mt8" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
+          onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+          <span style="font-size:12px;font-weight:700">Yard Allocation</span>
+          <span class="chev ml" style="color:var(--b3)">›</span>
+        </div>
+        <div style="display:none;padding:10px 12px">
+          ${g.yards.map(y=>{const F=hById(y.fid);return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px"><span class="chip cF" style="font-size:10px">${F?F.name:'?'}</span><strong>${y.cells||0}</strong><span style="color:var(--b3)">→</span><span>${y.yard||'(no yard set)'}</span></div>`;}).join('')}
+        </div>
+      </div>`:''}
+
       <div class="dvd"></div>
       <div class="brow">
         <button class="btn bp bs" onclick="openPanel('rec','${g.id}')">Record / update</button>
@@ -616,7 +670,7 @@ function renderRecPanel(id){
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
           onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
           <option value="">Select F...</option>
-          ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
+          ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${av?' available':' growing'}</option>`;}).join('')}
         </select>
         ${row.saved?'<span class="chip cok" style="font-size:9px">saved</span>':''}
         ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderStarterCard('${s.hive_id}','${id}')">x</button>`:''}
@@ -659,9 +713,17 @@ function renderRecPanel(id){
     const estOut=f.out_date||d.add(10,'day').format('YYYY-MM-DD');
     const wkndO=isWknd(estOut);
     const srcTxt=(f.sources||[]).map(s=>{const H2=hById(s.sid);return(H2?H2.name:'?')+':'+s.count;}).join(' + ');
+    // Stage badge: Larval (pre-capping) -> Capped -> Out
+    let stage,stageStyle;
+    if(isA){ stage = (f.out!=null&&f.out>0) ? 'Out' : 'Growing'; stageStyle = stage==='Out'?'background:var(--gl);color:var(--g)':'background:#dbeafe;color:#1e40af'; }
+    else if(f.out!=null&&f.out>0){ stage='Out'; stageStyle='background:var(--gl);color:var(--g)'; }
+    else if((f.capped!=null&&f.capped>0) || estCap<=today()){ stage='Capped'; stageStyle='background:#fef3c7;color:#92400e'; }
+    else { stage='Larval'; stageStyle='background:#dbeafe;color:#1e40af'; }
     return`<div class="fr">
       <div class="fr-hd">
         <span class="chip cF">${H?H.name:'?'}</span>
+        <span class="chip" style="${stageStyle}">${stage}</span>
+        ${H&&H.notes?`<span class="txs" style="font-style:italic">${H.notes}</span>`:''}
         <span class="txs">${f.cells_received||0} in${srcTxt?' ('+srcTxt+')':''}</span>
         ${fp!==null?`<span class="chip ${fp>=70?'cok':fp>=40?'cwarn':'cbad'}" style="margin-left:auto">${fp}%</span>`:''}
         <button class="btn bd bx" onclick="remFin('${id}',${i})">x</button>
@@ -696,7 +758,7 @@ function renderRecPanel(id){
       <select style="width:64px;padding:7px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
         onchange="updYard2('${id}',${yi},'fid',this.value)">
         <option value="">F</option>
-        ${numSort(outFinishers.map(f=>hById(f.hive_id))).map(f=>`<option value="${f.id}" ${y.fid===f.id?'selected':''}>${f.name}</option>`).join('')}
+        ${numSort(outFinishers.map(f=>hById(f.hive_id))).map(f=>`<option value="${f.id}" ${y.fid===f.id?'selected':''}>${hiveLabel(f)}</option>`).join('')}
       </select>
       <input type="number" min="0" placeholder="cells" value="${y.cells||''}"
         style="width:64px;padding:7px;text-align:center;font-size:14px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
@@ -742,7 +804,7 @@ function renderRecPanel(id){
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
                 <option value="">Select F...</option>
-                ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
+                ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${av?' available':' growing'}</option>`;}).join('')}
               </select>
               <input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
               <button class="btn bp bs" onclick="saveExtra('${id}')">Add</button>
@@ -950,7 +1012,7 @@ function renderStarterCard(sid, gid){
       <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
         onchange="setAD('${sid}',${ri},'fin',this.value)">
         <option value="">Select F...</option>
-        ${sortedFinishersByAvail(gid).map(f=>{const av=finisherAvailable(f.id,gid);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${f.name}${av?'':' (growing)'}</option>`;}).join('')}
+        ${sortedFinishersByAvail(gid).map(f=>{const av=finisherAvailable(f.id,gid);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${av?' available':' growing'}</option>`;}).join('')}
       </select>
       ${assignDraft[sid].length>1?`<button class="btn bd bx" onclick="removeAD('${sid}',${ri});renderStarterCard('${sid}','${gid}')">x</button>`:''}
     </div>`).join('');
