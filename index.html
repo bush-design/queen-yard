@@ -290,6 +290,35 @@ function hiveLabel(h){
   return h.name+' — '+short;
 }
 
+// Summarise what's already allocated into a finisher for this graft (saved + in-progress draft)
+function finisherAllocSummary(finisherId, gid){
+  const g=gById(gid);if(!g)return '';
+  const parts=[];
+  let total=0;
+  // Saved sources from finisher records
+  const f=(g.finishers||[]).find(x=>x.hive_id===finisherId);
+  if(f && f.sources){
+    f.sources.forEach(src=>{
+      const S=hById(src.sid);
+      parts.push((S?S.name:'?')+':'+src.count);
+      total+=src.count||0;
+    });
+  }
+  // In-progress draft rows (not yet saved) that target this finisher
+  (g.starters||[]).forEach(s=>{
+    const rows=assignDraft[s.hive_id]||[];
+    rows.forEach(row=>{
+      if(row.fin===finisherId && !row.saved && +row.cells>0){
+        const S=hById(s.hive_id);
+        parts.push((S?S.name:'?')+':'+row.cells+'*');
+        total+=+row.cells;
+      }
+    });
+  });
+  if(!parts.length) return '';
+  return parts.join(', ')+' ('+total+' in)';
+}
+
 // Finisher availability: a finisher is available if it has no active (not-yet-capped) cells in it.
 // excludeGraftId: ignore that graft's own records when checking (so you can top up your own batch freely)
 function finisherAvailable(finisherId, excludeGraftId){
@@ -670,7 +699,7 @@ function renderRecPanel(id){
         <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid ${row.saved?'var(--g)':'var(--bdr)'};border-radius:var(--rs);background:${row.saved?'var(--gl)':'var(--wht)'}"
           onchange="setAD('${s.hive_id}',${ri},'fin',this.value)">
           <option value="">Select F...</option>
-          ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${av?' available':' growing'}</option>`;}).join('')}
+          ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);const sum=finisherAllocSummary(f.id,id);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${sum?' — '+sum:av?' available':' growing'}</option>`;}).join('')}
         </select>
         ${row.saved?'<span class="chip cok" style="font-size:9px">saved</span>':''}
         ${assignDraft[s.hive_id].length>1?`<button class="btn bd bx" onclick="removeAD('${s.hive_id}',${ri});renderStarterCard('${s.hive_id}','${id}')">x</button>`:''}
@@ -804,7 +833,7 @@ function renderRecPanel(id){
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
                 <option value="">Select F...</option>
-                ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${av?' available':' growing'}</option>`;}).join('')}
+                ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);const sum=finisherAllocSummary(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${sum?' — '+sum:av?' available':' growing'}</option>`;}).join('')}
               </select>
               <input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
               <button class="btn bp bs" onclick="saveExtra('${id}')">Add</button>
@@ -1012,7 +1041,7 @@ function renderStarterCard(sid, gid){
       <select style="flex:1;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)"
         onchange="setAD('${sid}',${ri},'fin',this.value)">
         <option value="">Select F...</option>
-        ${sortedFinishersByAvail(gid).map(f=>{const av=finisherAvailable(f.id,gid);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${av?' available':' growing'}</option>`;}).join('')}
+        ${sortedFinishersByAvail(gid).map(f=>{const av=finisherAvailable(f.id,gid);const sum=finisherAllocSummary(f.id,gid);return `<option value="${f.id}" ${row.fin===f.id?'selected':''} style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${sum?' — '+sum:av?' available':' growing'}</option>`;}).join('')}
       </select>
       ${assignDraft[sid].length>1?`<button class="btn bd bx" onclick="removeAD('${sid}',${ri});renderStarterCard('${sid}','${gid}')">x</button>`:''}
     </div>`).join('');
