@@ -362,6 +362,19 @@ function go(p){
   document.querySelectorAll('nav button').forEach((b,i)=>b.classList.toggle('active',PAGES[i]===p));
   document.querySelectorAll('.bbt').forEach((b,i)=>b.classList.toggle('active',PAGES[i]===p));
   render();
+  if(p==='cal') setTimeout(centreCalToday, 50);
+}
+function centreCalToday(){
+  const scroller=document.getElementById('cal-scroll');
+  const marker=document.querySelector('#cal-scroll th[data-today]') || document.querySelector('#cal-scroll th[style*="14532D"][style*="border-left"]');
+  if(!scroller) return;
+  // Find the th cell with the black outline (today column) by scanning all th in the second header row
+  const ths=[...scroller.querySelectorAll('thead tr:nth-child(2) th')];
+  const todayTh=ths.find(th=>th.style.borderLeft && th.style.borderLeft.includes('14532D'));
+  if(todayTh){
+    const target=todayTh.offsetLeft - (scroller.clientWidth/2) + (todayTh.offsetWidth/2);
+    scroller.scrollLeft = Math.max(0, target);
+  }
 }
 function render(){
   const el=document.getElementById('app');
@@ -1131,23 +1144,29 @@ function rCal(){
   const td=today();
   let pm='';
   const mrow=cols.map(c=>{const mo=c.format('MMM YY');if(mo!==pm){pm=mo;return`<th style="text-align:left;background:#3D5432;color:var(--gm)">${mo}</th>`;}return`<th style="background:#3D5432"></th>`;}).join('');
-  const drow=cols.map(c=>{const it=c.format('YYYY-MM-DD')===td;return`<th style="padding:3px 4px;text-align:center;font-size:10px;background:${it?'var(--gm)':'var(--gl)'};color:${it?'#14532D':'var(--b3)'};font-weight:${it?'800':'400'}">${c.format('D')}</th>`;}).join('');
+  const drow=cols.map(c=>{const it=c.format('YYYY-MM-DD')===td;return`<th style="padding:3px 4px;text-align:center;font-size:10px;background:${it?'var(--gm)':'var(--gl)'};color:${it?'#14532D':'var(--b3)'};font-weight:${it?'800':'400'};${it?'border-left:2px solid #14532D;border-right:2px solid #14532D;border-top:2px solid #14532D':''}">${c.format('D')}</th>`;}).join('');
   const sorted=G.slice().sort((a,b)=>{const ac=gDone(a),bc=gDone(b);return ac!==bc?ac?1:-1:b.date.localeCompare(a.date);});
   let lastId=null;
+  const todayIdx=cols.findIndex(c=>c.format('YYYY-MM-DD')===td);
   const rows=sorted.flatMap(g=>{
     const B=hById(g.breeder_id);const d=dayjs(g.date);const isA=g.protocol==='autumn';
     const sm={};sm[g.date]={l:'G',s:'background:var(--g);color:var(--wht)'};
     if(isA){sm[d.add(1,'day').format('YYYY-MM-DD')]={l:'.',s:'background:var(--gl)'};sm[gOutDate(g)]={l:'Out',s:'background:var(--gm);color:#14532D;font-weight:700'};}
     else{sm[d.add(1,'day').format('YYYY-MM-DD')]={l:'F',s:'background:#bfdbfe;color:#1e40af'};[2,3,4].forEach(i=>sm[d.add(i,'day').format('YYYY-MM-DD')]={l:'.',s:'background:#bfdbfe'});sm[gCapDate(g)]={l:'Cap',s:'background:#fde68a;color:var(--ink);font-weight:700'};[6,7,8,9].forEach(i=>sm[d.add(i,'day').format('YYYY-MM-DD')]={l:'.',s:'background:#fde68a'});sm[gOutDate(g)]={l:'Out',s:'background:var(--gm);color:#14532D;font-weight:700'};sm[d.add(30,'day').format('YYYY-MM-DD')]={l:'M',s:'background:#e9d5ff;color:#6b21a8'};}
     const fins=(g.finishers||[]);const isNew=g.id!==lastId;lastId=g.id;const op=gDone(g)?'opacity:.4':'';
+    const buildCell=(c,ci)=>{
+      const ds=c.format('YYYY-MM-DD');const st=sm[ds];const it=ci===todayIdx;
+      const tb=it?'border-left:2px solid #14532D;border-right:2px solid #14532D':'';
+      return`<td style="padding:2px 3px;border:0.5px solid var(--bdr);${tb};background:${it?'#f0fdf4':'transparent'};text-align:center">${st?`<span style="border-radius:3px;padding:1px 4px;font-size:10px;${st.s}">${st.l}</span>`:''}</td>`;
+    };
     if(!fins.length){
-      const cells=cols.map(c=>{const ds=c.format('YYYY-MM-DD');const st=sm[ds];const it=ds===td;return`<td style="padding:2px 3px;border:0.5px solid var(--bdr);background:${it?'#f0fdf4':'transparent'};text-align:center">${st?`<span style="border-radius:3px;padding:1px 4px;font-size:10px;${st.s}">${st.l}</span>`:''}</td>`;}).join('');
+      const cells=cols.map(buildCell).join('');
       return[`<tr style="${op}" onclick="openPanel('rec','${g.id}')" class="cal-row"><td class="row-lbl" style="border-top:${isNew?'2px solid var(--g)':'none'}">${B?B.name:'?'}</td><td class="row-lbl" style="border-top:${isNew?'2px solid var(--g)':'none'};color:var(--g);font-size:9px">--</td>${cells}</tr>`];
     }
-    return fins.map((f,fi)=>{const H=hById(f.hive_id);const cells=cols.map(c=>{const ds=c.format('YYYY-MM-DD');const st=sm[ds];const it=ds===td;return`<td style="padding:2px 3px;border:0.5px solid var(--bdr);background:${it?'#f0fdf4':'transparent'};text-align:center">${st?`<span style="border-radius:3px;padding:1px 4px;font-size:10px;${st.s}">${st.l}</span>`:''}</td>`;}).join('');return`<tr style="${op}" onclick="openPanel('rec','${g.id}')" class="cal-row"><td class="row-lbl" style="border-top:${fi===0&&isNew?'2px solid var(--g)':'none'}">${fi===0?B?B.name:'?':''}</td><td class="row-lbl" style="border-top:${fi===0&&isNew?'2px solid var(--g)':'none'};color:var(--g);font-size:9px">${H?H.name:'?'}</td>${cells}</tr>`;});
+    return fins.map((f,fi)=>{const H=hById(f.hive_id);const cells=cols.map(buildCell).join('');return`<tr style="${op}" onclick="openPanel('rec','${g.id}')" class="cal-row"><td class="row-lbl" style="border-top:${fi===0&&isNew?'2px solid var(--g)':'none'}">${fi===0?B?B.name:'?':''}</td><td class="row-lbl" style="border-top:${fi===0&&isNew?'2px solid var(--g)':'none'};color:var(--g);font-size:9px">${H?H.name:'?'}</td>${cells}</tr>`;});
   }).join('');
   return`<div class="card" style="padding:12px 8px"><div class="chd">Calendar</div>
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <div id="cal-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table style="border-collapse:collapse;font-size:10px">
         <thead><tr><th style="background:#3D5432;color:var(--gm);padding:3px 8px">Batch</th><th style="background:#3D5432;color:var(--gm);padding:3px 8px">Hive</th>${mrow}</tr>
           <tr><td style="background:var(--gl);padding:3px 8px"></td><td style="background:var(--gl)"></td>${drow}</tr>
