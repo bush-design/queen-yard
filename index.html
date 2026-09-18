@@ -189,13 +189,13 @@ const LOG_TYPES=[
 ];
 
 // STATE
-let DB={hives:[],grafts:[],supaUrl:'',supaKey:''};
+let DB={hives:[],grafts:[],method:'starter_finisher',supaUrl:'',supaKey:''};
 let pg='dash',panelMode=null,panelId=null,draft=null;
 
 // PERSIST
 function save(){
   try{
-    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts}));
+    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,method:DB.method}));
     showSaved();
   }catch(e){toast('Save error: '+e.message);}
   supaPush();
@@ -207,7 +207,7 @@ function showSaved(){
 function loadLocal(){
   try{
     const r=localStorage.getItem('qct3');
-    if(r){const d=JSON.parse(r);DB.hives=d.hives||[];DB.grafts=d.grafts||[];}
+    if(r){const d=JSON.parse(r);DB.hives=d.hives||[];DB.grafts=d.grafts||[];DB.method=d.method||'starter_finisher';}
     const c=localStorage.getItem('qct_cfg2');
     if(c){const x=JSON.parse(c);DB.supaUrl=x.url||'';DB.supaKey=x.key||'';}
   }catch(e){console.error(e);}
@@ -240,7 +240,7 @@ async function supaLoad(){
     };
     DB.hives=merge(DB.hives,rh);
     DB.grafts=merge(DB.grafts,rg);
-    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts}));
+    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,method:DB.method}));
     setDot(true);
   }catch(e){console.error('Supa load:',e);setDot(false);}
 }
@@ -263,6 +263,7 @@ function setDot(ok){const d=document.getElementById('dot');if(d)d.className='dot
 
 // HELPERS
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function isCloake(){return DB.method==='cloake';}
 function today(){return dayjs().format('YYYY-MM-DD');}
 function fmt(d){return d?dayjs(d).format('D MMM'):'--';}
 function fmtF(d){return d?dayjs(d).format('D MMM YY'):'--';}
@@ -405,8 +406,15 @@ function rDash(){
   const due=[];
   G.forEach(g=>{
     const d=dayjs(g.date);
+    const isCloakeGraft = g.method==='cloake';
     const checks=g.protocol==='autumn'
       ?[{l:'Out',date:gOutDate(g),done:(g.finishers||[]).some(f=>f.out!=null)}]
+      :isCloakeGraft
+      ?[{l:'🔲 Slide in',date:d.subtract(1,'day').format('YYYY-MM-DD'),done:g.slide_in_done||false},
+        {l:'🔳 Slide out',date:d.add(1,'day').format('YYYY-MM-DD'),done:g.slide_out_done||false},
+        {l:'Capping check',date:gCapDate(g),done:(g.finishers||[]).some(f=>f.capped!=null)},
+        {l:'Cells out',date:gOutDate(g),done:(g.finishers||[]).some(f=>f.out!=null)},
+        {l:'Mated check',date:d.add(30,'day').format('YYYY-MM-DD'),done:(g.finishers||[]).some(f=>f.mated!=null)}]
       :[{l:'Assign finishers',date:d.add(1,'day').format('YYYY-MM-DD'),done:(g.finishers||[]).length>0},
         {l:'Capping check',date:gCapDate(g),done:(g.finishers||[]).some(f=>f.capped!=null)},
         {l:'Cells out',date:gOutDate(g),done:(g.finishers||[]).some(f=>f.out!=null)},
@@ -487,7 +495,9 @@ function rGraftCard(g){
   const done=gDone(g);const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.cells_received||0)-(f.out||0)),0);
   const wd=dayN(outDate);const wknd=isWknd(outDate);
   const isA=g.protocol==='autumn';const d=dayjs(g.date);
+  const isCloakeG=g.method==='cloake';
   const stages=isA?[{l:'Graft',d:g.date},{l:'Out',d:outDate}]
+    :isCloakeG?[{l:'Slide in',d:d.subtract(1,'day').format('YYYY-MM-DD')},{l:'Graft',d:g.date},{l:'Slide out',d:d.add(1,'day').format('YYYY-MM-DD')},{l:'Capped',d:gCapDate(g)},{l:'Out',d:outDate},{l:'Mated',d:d.add(30,'day').format('YYYY-MM-DD')}]
     :[{l:'Graft',d:g.date},{l:'Finishers',d:d.add(1,'day').format('YYYY-MM-DD')},{l:'Capped',d:gCapDate(g)},{l:'Out',d:outDate},{l:'Mated',d:d.add(30,'day').format('YYYY-MM-DD')}];
   const tl=stages.map(s=>{const c=isPast(s.d)?'done':isToday(s.d)?'now':'';return`<div class="tl-n"><div class="tl-d ${c}">${isPast(s.d)?'v':'o'}</div><div class="tl-l">${s.l}</div><div class="tl-dt">${fmt(s.d)}</div></div>`;}).join('');
   const starterBoxes=(g.starters||[]).map(s=>{const H=hById(s.hive_id);const sent=(g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);const sp2=pct(sent,s.cells_in||0);return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div class="txs">${s.cells_in||0} in</div>${sp2!==null?`<div style="font-size:10px;font-weight:700;color:${sp2>=70?'var(--g)':sp2>=40?'var(--amb)':'var(--red)'}">${sp2}%</div>`:''}</div>`;}).join('');
@@ -588,7 +598,9 @@ function rGraft(){
   const outDate=isA?d.add(2,'day').format('YYYY-MM-DD'):d.add(10,'day').format('YYYY-MM-DD');
   const capDate=isA?null:d.add(5,'day').format('YYYY-MM-DD');
   const wd=dayN(outDate);const wknd=isWknd(outDate);
+  const cloake=isCloake();
   const stages=isA?[{l:'Graft',d:f.date},{l:'Out',d:outDate}]
+    :cloake?[{l:'Slide in',d:d.subtract(1,'day').format('YYYY-MM-DD')},{l:'Graft',d:f.date},{l:'Slide out',d:d.add(1,'day').format('YYYY-MM-DD')},{l:'Capped',d:capDate},{l:'Out',d:outDate},{l:'Mated',d:d.add(30,'day').format('YYYY-MM-DD')}]
     :[{l:'Graft',d:f.date},{l:'Finishers',d:d.add(1,'day').format('YYYY-MM-DD')},{l:'Capped',d:capDate},{l:'Out',d:outDate},{l:'Mated',d:d.add(30,'day').format('YYYY-MM-DD')}];
   const tl=stages.map(s=>{const c=isPast(s.d)?'done':isToday(s.d)?'now':'';return`<div class="tl-n"><div class="tl-d ${c}">${isPast(s.d)?'v':'o'}</div><div class="tl-l">${s.l}</div><div class="tl-dt">${fmt(s.d)}</div></div>`;}).join('');
   const totalCells=f.starters.reduce((a,s)=>a+(+s.cells_in||0),0);
@@ -618,7 +630,18 @@ function rGraft(){
           ${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}
         </select></div>
     </div>
-    ${starters.length?`<div class="mt12">
+    ${cloake?`<div class="mt12">
+      <div class="lbl">Cloake Board Hive</div>
+      <p class="tsm" style="margin-bottom:8px">Select the single hive being used with the cloake board.</p>
+      <select onchange="draft.cloake_hive_id=this.value" style="width:100%;padding:10px;font-size:15px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--cr)">
+        <option value="">Select hive...</option>
+        ${numSort(hByType('finisher').filter(h=>!h.retired)).map(h=>`<option value="${h.id}" ${f.cloake_hive_id===h.id?'selected':''}>${hiveLabel(h)}</option>`).join('')}
+      </select>
+      <div class="field mt8"><label>Cells Grafted</label>
+        <input type="number" min="0" placeholder="e.g. 45" value="${f.grafted||''}" oninput="draft.grafted=+this.value"
+          style="font-size:18px;font-weight:800;text-align:center"></div>
+    </div>`
+    :starters.length?`<div class="mt12">
       <div class="lbl">Starters — cells grafted into each</div>
       ${saRows}
       <div style="padding:10px;background:var(--gl);border-radius:var(--rs);text-align:center">
@@ -642,10 +665,26 @@ function setSC(hive_id,count){
 function saveGraft(){
   const f=draft;
   if(!f.breeder_id){toast('Select a breeder');return;}
+  const cloakeMode=isCloake();
+  if(cloakeMode && !f.cloake_hive_id){toast('Select a cloake board hive');return;}
+  // For cloake: auto-create a finisher record for the single hive
+  let existingFinishers=f.id?(gById(f.id)?.finishers||[]):[];
+  if(cloakeMode && f.cloake_hive_id && !existingFinishers.length){
+    const d2=dayjs(f.date);
+    existingFinishers=[{hive_id:f.cloake_hive_id,cells_received:f.grafted||0,sources:[],
+      capped:null,out:null,mated:null,
+      capped_date:d2.add(5,'day').format('YYYY-MM-DD'),
+      out_date:d2.add(10,'day').format('YYYY-MM-DD')}];
+  } else if(cloakeMode && f.cloake_hive_id){
+    // Update existing finisher hive and cells
+    existingFinishers=existingFinishers.map((fin,i)=>i===0?{...fin,hive_id:f.cloake_hive_id,cells_received:f.grafted||fin.cells_received}:fin);
+  }
   const g={
     id:f.id||uid(),date:f.date,protocol:f.protocol,breeder_id:f.breeder_id,
-    starters:f.starters.filter(s=>s.cells_in>0),
-    finishers:f.id?(gById(f.id)?.finishers||[]):[],
+    method:cloakeMode?'cloake':'starter_finisher',
+    cloake_hive_id:f.cloake_hive_id||null,
+    starters:cloakeMode?[]:(f.starters||[]).filter(s=>s.cells_in>0),
+    finishers:cloakeMode?existingFinishers:existingFinishers,
     notes:f.notes||'',updated_at:new Date().toISOString()
   };
   const idx=DB.grafts.findIndex(x=>x.id===g.id);
@@ -746,6 +785,7 @@ function renderRecPanel(id){
   }).join('');
 
   const noStarters=!(g.starters||[]).length;
+  const isCloakeRec=g.method==='cloake';
 
   // Finisher records
   const d=dayjs(g.date);
@@ -822,6 +862,21 @@ function renderRecPanel(id){
       ${gp!==null?`<div class="lbl">Out / grafted</div>${pctBar(gp)}`:''}
     </div>
     ${(g.starters||[]).length?`<div class="card"><div class="chd">Starters</div>${stSummary}</div>`:''}
+    ${isCloakeRec?`<div class="card">
+      <div class="chd">Cloake Board Prompts</div>
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <button class="btn ${g.slide_in_done?'bp':'bo'} bs" style="flex:1;gap:8px"
+          onclick="updGraftFlag('${id}','slide_in_done',!${!!g.slide_in_done});renderRecPanel('${id}')">
+          🔲 Slide in${g.slide_in_done?' ✓':' (day before graft)'}
+        </button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ${g.slide_out_done?'bp':'bo'} bs" style="flex:1;gap:8px"
+          onclick="updGraftFlag('${id}','slide_out_done',!${!!g.slide_out_done});renderRecPanel('${id}')">
+          🔳 Slide out${g.slide_out_done?' ✓':' (day after graft)'}
+        </button>
+      </div>
+    </div>`:''}
     ${(()=>{
       // Determine if everything is already allocated (collapse by default if so)
       const allAllocated = !noStarters && (g.starters||[]).every(s=>{
@@ -929,6 +984,7 @@ function saveExtra(gid){
   stamp(g);save();toast('Added');renderRecPanel(gid);
 }
 
+function updGraftFlag(gid,key,val){const g=gById(gid);if(!g)return;g[key]=val;stamp(g);save();}
 function updFin(gid,i,k,v){const g=gById(gid);if(!g)return;g.finishers[i][k]=v;stamp(g);save();}
 function remFin(gid,i){const g=gById(gid);if(!g)return;g.finishers.splice(i,1);stamp(g);save();renderRecPanel(gid);}
 function addYard2(gid){const g=gById(gid);if(!g)return;if(!g.yards)g.yards=[];g.yards.push({fid:'',cells:'',yard:''});stamp(g);save();renderRecPanel(gid);}
@@ -1205,6 +1261,19 @@ function rStats(){
 // SETTINGS
 function rSettings(){
   return`<div class="card"><div class="chd">Settings</div>
+    <div class="lbl">Rearing Method</div>
+    <p class="tsm" style="margin-bottom:8px">This sets the timing and prompts for all grafts.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <button class="pbtn ${!isCloake()?'active':''}" onclick="DB.method='starter_finisher';save();render()">
+        <span style="font-size:14px;font-weight:700">Starter / Finisher</span>
+        <span class="psub">Cells move between hives on Day 1</span>
+      </button>
+      <button class="pbtn ${isCloake()?'active':''}" onclick="DB.method='cloake';save();render()">
+        <span style="font-size:14px;font-weight:700">Cloake Board</span>
+        <span class="psub">Single hive, slide in/out prompts</span>
+      </button>
+    </div>
+    <div class="dvd"></div>
     <div class="lbl">PIN</div><p class="tsm" style="margin-bottom:8px">Locks the app on open.</p>
     <button class="btn bo bs" onclick="changePin()">Change PIN</button>
     <div class="dvd"></div>
