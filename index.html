@@ -583,7 +583,7 @@ function rGraftCard(g){
 // GRAFT FORM
 function initDraft(existing){
   if(existing){draft={...existing,starters:(existing.starters||[]).map(s=>({...s}))};}
-  else{draft={id:null,date:today(),protocol:'standard',breeder_id:hByType('breeder')[0]?.id||'',starters:[],notes:'',grafted:0};}
+  else{draft={id:null,date:today(),protocol:'standard',breeder_id:hByType('breeder')[0]?.id||'',starters:[],notes:'',grafted:0,cloake_hive_id:'',sky:'',temp:'',precip:false,precipTypes:[]};}
 }
 function startEdit(id){initDraft(gById(id));go('graft');}
 
@@ -647,7 +647,55 @@ function rGraft(){
       <div style="padding:10px;background:var(--gl);border-radius:var(--rs);text-align:center">
         <span class="tsm">Total: </span><strong style="font-size:20px;color:var(--g)">${totalCells}</strong><span class="tsm"> cells grafted</span>
       </div></div>`:`<p class="tsm mt12" style="color:var(--b3)">No starters set up. <a href="#" onclick="go('hives')" style="color:var(--g)">Add starters</a></p>`}
-    <div class="field mt12"><label>Notes</label><textarea placeholder="Weather, observations..." onchange="draft.notes=this.value">${f.notes||''}</textarea></div>
+    <div class="r2 mt12">
+      <div class="field">
+        <label>Sky Condition</label>
+        <select onchange="draft.sky=this.value">
+          <option value="">Select...</option>
+          <option value="CLR" ${f.sky==='CLR'?'selected':''}>Clear — No clouds</option>
+          <option value="FEW" ${f.sky==='FEW'?'selected':''}>Few — Up to 2/8 cloud</option>
+          <option value="SCT" ${f.sky==='SCT'?'selected':''}>Scattered — 3–4/8 cloud</option>
+          <option value="BKN" ${f.sky==='BKN'?'selected':''}>Broken — 4–8/8 cloud</option>
+          <option value="OVC" ${f.sky==='OVC'?'selected':''}>Overcast — Full cover</option>
+          <option value="X"   ${f.sky==='X'?'selected':''}>Obscured — Fog/smoke</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Temperature (°C)</label>
+        <input type="number" step="0.5" placeholder="e.g. 22" value="${f.temp||''}" onchange="draft.temp=this.value">
+      </div>
+    </div>
+
+    <div class="field mt12">
+      <label>Precipitation</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink);cursor:pointer">
+          <input type="checkbox" id="precip-check" style="width:18px;height:18px;accent-color:var(--g);cursor:pointer"
+            ${f.precip?'checked':''} onchange="draft.precip=this.checked;document.getElementById('precip-types').style.display=this.checked?'flex':'none'">
+          Precipitation present
+        </label>
+      </div>
+      <div id="precip-types" style="display:${f.precip?'flex':'none'};flex-wrap:wrap;gap:6px">
+        ${[
+          {v:'NIL',l:'None'},
+          {v:'R-L',l:'Light rain'},
+          {v:'R-M',l:'Moderate rain'},
+          {v:'R-H',l:'Heavy rain'},
+          {v:'S',  l:'Snow'},
+          {v:'RS', l:'Rain & snow'},
+          {v:'G',  l:'Graupel/hail'},
+          {v:'ZR', l:'Freezing rain'},
+          {v:'RV', l:'Very light rain'},
+        ].map(p=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink);cursor:pointer;padding:5px 10px;border:1.5px solid var(--bdr);border-radius:20px;background:${(f.precipTypes||[]).includes(p.v)?'var(--gl)':'var(--wht)'}">
+          <input type="checkbox" style="width:14px;height:14px;accent-color:var(--g);cursor:pointer"
+            value="${p.v}" ${(f.precipTypes||[]).includes(p.v)?'checked':''}
+            onchange="const t=draft.precipTypes||[];draft.precipTypes=this.checked?[...t,'${p.v}']:t.filter(x=>x!=='${p.v}')">
+          ${p.l}
+        </label>`).join('')}
+      </div>
+    </div>
+
+    <div class="field mt12"><label>Notes</label><textarea placeholder="Observations..." onchange="draft.notes=this.value">${f.notes||''}</textarea></div>
     <div class="brow mt12">
       <button class="btn bp" onclick="saveGraft()">Save graft</button>
       <button class="btn bg" onclick="cancelGraft()">Cancel</button>
@@ -685,7 +733,7 @@ function saveGraft(){
     cloake_hive_id:f.cloake_hive_id||null,
     starters:cloakeMode?[]:(f.starters||[]).filter(s=>s.cells_in>0),
     finishers:cloakeMode?existingFinishers:existingFinishers,
-    notes:f.notes||'',updated_at:new Date().toISOString()
+    notes:f.notes||'',sky:f.sky||'',temp:f.temp||'',precip:f.precip||false,precipTypes:f.precipTypes||[],updated_at:new Date().toISOString()
   };
   const idx=DB.grafts.findIndex(x=>x.id===g.id);
   if(idx>=0)DB.grafts[idx]=g;else DB.grafts.unshift(g);
