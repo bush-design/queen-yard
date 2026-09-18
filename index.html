@@ -994,16 +994,38 @@ function remYard2(gid,yi){const g=gById(gid);if(!g||!g.yards)return;g.yards.spli
 // HIVES
 function rHives(){
   const all=DB.hives;
+  const cloake=isCloake();
   const list=all.length?numSort(all).map(h=>{const cc=h.type==='breeder'?'cB':h.type==='starter'?'cS':'cF';const ll=h.log?.length?h.log[h.log.length-1]:null;const ret=h.retired;return`<div class="hrow" style="${ret?'opacity:.55':''}" onclick="openPanel('hive','${h.id}')"><div style="flex:1"><div style="font-weight:700;font-size:14px">${h.name} <span class="chip ${cc}" style="font-size:10px">${h.type}</span>${ret?'<span class="chip" style="background:#f3f4f6;color:#6b7280;font-size:10px;margin-left:4px">Retired</span>':''}</div><div class="txs">${ret?(h.retired_reason||'Retired'):(h.queen_status||'unknown')+' · Str '+(h.strength||'?')+'/5'+(ll?' · '+fmt(ll.date)+' '+ll.type:'')}</div></div><span style="color:var(--b3)">›</span></div>`;}).join(''):'<div class="empty"><p>No hives yet.</p></div>';
-  return`<div class="card">
-    <div class="chd">Hive Manager <span class="ml"><button class="btn bp bx" onclick="openPanel('bulk',null)">Bulk log</button></span></div>
-    <div class="brow" style="margin-bottom:12px">
-      <button class="btn bo bs" onclick="addHive('breeder')">+ Breeder</button>
-      <button class="btn bo bs" onclick="addHive('starter')">+ Starter</button>
-      <button class="btn bo bs" onclick="addHive('finisher')">+ Finisher</button>
+  return`
+    <div class="card">
+      <div class="chd">Rearing Method</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="pbtn ${!cloake?'active':''}" onclick="DB.method='starter_finisher';save();render()">
+          <span style="font-size:13px;font-weight:700">Starter / Finisher</span>
+          <span class="psub">Cells move between hives on Day 1</span>
+        </button>
+        <button class="pbtn ${cloake?'active':''}" onclick="DB.method='cloake';save();render()">
+          <span style="font-size:13px;font-weight:700">Cloake Board</span>
+          <span class="psub">Single hive, slide in/out prompts</span>
+        </button>
+      </div>
+      ${cloake?`<div style="margin-top:10px;padding:10px;background:var(--gl);border-radius:var(--rs)">
+        <div class="tsm" style="font-weight:600;margin-bottom:4px">Cloake Board setup</div>
+        <div class="txs">You need: <strong>Breeders</strong> (to graft from) and <strong>Finishers</strong> (your cloake board hives). No starter hives needed.</div>
+      </div>`:`<div style="margin-top:10px;padding:10px;background:var(--gl);border-radius:var(--rs)">
+        <div class="tsm" style="font-weight:600;margin-bottom:4px">Starter / Finisher setup</div>
+        <div class="txs">You need: <strong>Breeders</strong> (to graft from), <strong>Starters</strong> (to accept grafts) and <strong>Finishers</strong> (to finish raising cells).</div>
+      </div>`}
     </div>
-    ${list}
-  </div>`;
+    <div class="card">
+      <div class="chd">Hive Manager <span class="ml"><button class="btn bp bx" onclick="openPanel('bulk',null)">Bulk log</button></span></div>
+      <div class="brow" style="margin-bottom:12px">
+        <button class="btn bo bs" onclick="addHive('breeder')">+ Breeder</button>
+        ${cloake?'':`<button class="btn bo bs" onclick="addHive('starter')">+ Starter</button>`}
+        <button class="btn bo bs" onclick="addHive('finisher')">${cloake?'+ Cloake hive':'+ Finisher'}</button>
+      </div>
+      ${list}
+    </div>`;
 }
 
 function addHive(type){
