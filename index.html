@@ -1362,7 +1362,8 @@ function rSettings(){
       <button class="btn bg bs" onclick="expData()">Export</button>
       <button class="btn bg bs" onclick="document.getElementById('imp').click()">Import</button>
       <input type="file" id="imp" accept=".json" style="display:none" onchange="impData(this)">
-      <button class="btn bd bs" onclick="clrAll()">Clear all</button>
+      <button class="btn bd bs" onclick="clrAll()">Clear local data</button>
+      <button class="btn bd bs" onclick="factoryReset()">Factory reset</button>
     </div>
     <div id="save-dot" style="width:8px;height:8px;border-radius:50%;background:var(--g);margin-top:8px;opacity:0;transition:opacity .5s"></div>
   </div>`;
@@ -1372,7 +1373,27 @@ function saveSupa(){DB.supaUrl=document.getElementById('sbu').value.trim();DB.su
 function clrSupa(){DB.supaUrl='';DB.supaKey='';localStorage.removeItem('qct_cfg2');toast('Disconnected');render();}
 function expData(){const b=new Blob([JSON.stringify({hives:DB.hives,grafts:DB.grafts},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qct.json';a.click();}
 function impData(i){const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);DB.hives=d.hives||[];DB.grafts=d.grafts||[];save();toast('Imported');render();}catch{toast('Invalid file');}};r.readAsText(i.files[0]);}
-function clrAll(){if(!confirm('Delete ALL data?'))return;DB.hives=[];DB.grafts=[];save();toast('Cleared');render();}
+function clrAll(){if(!confirm('Delete ALL local data?'))return;DB.hives=[];DB.grafts=[];save();toast('Cleared');render();}
+
+async function factoryReset(){
+  if(!confirm('This will delete ALL data locally AND from Supabase. This cannot be undone. Are you sure?'))return;
+  if(!confirm('Last chance — delete everything?'))return;
+  // Delete from Supabase if connected
+  if(DB.supaUrl&&DB.supaKey){
+    toast('Deleting from Supabase...');
+    try{
+      await Promise.all([
+        fetch(supaBase('qct_hives')+'?id=neq.NEVER',{method:'DELETE',headers:supaHdr()}),
+        fetch(supaBase('qct_grafts')+'?id=neq.NEVER',{method:'DELETE',headers:supaHdr()})
+      ]);
+    }catch(e){toast('Supabase delete failed: '+e.message);return;}
+  }
+  // Clear local
+  DB.hives=[];DB.grafts=[];
+  localStorage.setItem('qct3',JSON.stringify({hives:[],grafts:[]}));
+  toast('All data deleted');
+  render();
+}
 
 // PIN
 let pinBuf='',pinUnlocked=false;
