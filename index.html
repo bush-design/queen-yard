@@ -219,13 +219,38 @@ function supaBase(t){return DB.supaUrl.replace(/\/$/,'')+'/rest/v1/'+t;}
 async function supaLoad(){
   if(!DB.supaUrl||!DB.supaKey)return;
   try{
+    const localEmpty = DB.hives.length===0 && DB.grafts.length===0;
+    if(localEmpty){
+      // New device / fresh install — pull from Supabase
+      const[hr,gr]=await Promise.all([
+        fetch(supaBase('qct_hives')+'?select=*',{headers:supaHdr()}),
+        fetch(supaBase('qct_grafts')+'?select=*',{headers:supaHdr()})
+      ]);
+      if(!hr.ok||!gr.ok)throw new Error('Fetch failed');
+      const rh=await hr.json(),rg=await gr.json();
+      DB.hives=rh.map(h=>({...h,log:h.log||[]}));
+      DB.grafts=rg.map(g=>({...g,starters:g.starters||[],finishers:g.finishers||[]}));
+      localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,yard:DB.yard,method:DB.method}));
+      toast('Data loaded from Supabase');
+    } else {
+      // Local has data — push it to Supabase (local is the truth)
+      await supaPush();
+    }
+    setDot(true);
+  }catch(e){console.error('Supa load:',e);setDot(false);}
+}
+
+// Force pull from Supabase (only used by manual "Sync now" button)
+async function supaForcePull(){
+  if(!DB.supaUrl||!DB.supaKey)return false;
+  try{
     const[hr,gr]=await Promise.all([
       fetch(supaBase('qct_hives')+'?select=*',{headers:supaHdr()}),
       fetch(supaBase('qct_grafts')+'?select=*',{headers:supaHdr()})
     ]);
     if(!hr.ok||!gr.ok)throw new Error('Fetch failed');
     const rh=await hr.json(),rg=await gr.json();
-    // Merge: keep local if newer
+    // Merge: local wins on conflict (newer updated_at)
     const merge=(local,remote)=>{
       const m={};
       local.forEach(x=>m[x.id]=x);
@@ -242,7 +267,8 @@ async function supaLoad(){
     DB.grafts=merge(DB.grafts,rg);
     localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,yard:DB.yard,method:DB.method}));
     setDot(true);
-  }catch(e){console.error('Supa load:',e);setDot(false);}
+    return true;
+  }catch(e){console.error('Supa pull:',e);setDot(false);return false;}
 }
 async function supaPush(){
   if(!DB.supaUrl||!DB.supaKey)return;
@@ -1569,7 +1595,7 @@ function rSettings(){
     <div class="dvd"></div>
     <div class="lbl">Supabase</div>
     <p class="tsm" style="margin-bottom:8px">Connect to sync across devices.</p>
-    ${DB.supaUrl?`<div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--gl);border-radius:var(--rs);margin-bottom:8px"><div class="dot ok"></div><span class="tsm" style="color:var(--g);font-weight:600">Connected</span><button class="btn bg bx ml" onclick="supaLoad().then(()=>{toast('Synced');render()})">Sync now</button></div>`:''}
+    ${DB.supaUrl?`<div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--gl);border-radius:var(--rs);margin-bottom:8px"><div class="dot ok"></div><span class="tsm" style="color:var(--g);font-weight:600">Connected</span><button class="btn bg bx ml" onclick="supaForcePull().then(ok=>{if(ok){toast('Synced from Supabase');render();}else toast('Sync failed');})">Sync from Supabase</button></div>`:''}
     <div class="field"><label>Project URL</label><input type="url" id="sbu" placeholder="https://xxxx.supabase.co" value="${DB.supaUrl}"></div>
     <div class="field mt8"><label>Anon Key</label><input type="password" id="sbk" placeholder="eyJ..." value="${DB.supaKey}"></div>
     <div class="brow mt12">
