@@ -459,23 +459,28 @@ function tickYard(i){
 function rScheduledGrafts(){
   const scheduled=(DB.grafts||[]).filter(g=>g.scheduled&&!g.started);
   if(!scheduled.length)return'';
-  return`<div class="card" style="border:1.5px solid var(--bdr)">
-    <div class="chd">Scheduled Grafts</div>
+  const td=today();
+  return`<div class="card" style="padding:14px">
+    <div style="font-size:13px;font-weight:700;color:var(--b2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Scheduled</div>
     ${scheduled.sort((a,b)=>a.date.localeCompare(b.date)).map(g=>{
-      const B=hById(g.breeder_id);const d=dayjs(g.date);
-      const slideInDate=d.subtract(1,'day').format('YYYY-MM-DD');
-      const td=today();
+      const B=hById(g.breeder_id);
+      const d=dayjs(g.date);
       const daysTo=d.diff(dayjs(),'day');
-      const isToday2=g.date===td;const isSoon=daysTo<=3&&daysTo>0;
+      const slideInDate=d.subtract(1,'day').format('YYYY-MM-DD');
+      const graftDue=g.date===td;
       const slideInDue=slideInDate===td;
-      const graftDue=isToday2;
-      return`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:${graftDue?'#fef3c7':slideInDue?'#dbeafe':'var(--gl)'};border-radius:var(--rs);margin-bottom:8px">
+      const urgent=graftDue||slideInDue;
+      const bg=graftDue?'#fef3c7':slideInDue?'#dbeafe':'var(--gl)';
+      const lbl=graftDue?'Graft today 🐝':slideInDue?'🔲 Slide in today':daysTo===1?'Tomorrow':daysTo>0?'In '+daysTo+'d':'Overdue';
+      return`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${bg};border-radius:var(--rs);margin-bottom:6px">
         <div style="flex:1">
-          <div style="font-weight:700;font-size:13px">${fmtF(g.date)} — ${B?B.name:'?'}</div>
-          <div class="txs">${graftDue?'Graft today':slideInDue?'🔲 Slide in today':isSoon?'In '+daysTo+'d':'In '+daysTo+'d'}</div>
+          <span style="font-size:13px;font-weight:700">${fmtF(g.date)}</span>
+          ${B?`<span class="chip ch-B" style="font-size:10px;margin-left:6px">${B.name}</span>`:''}
+          <span class="chip" style="font-size:10px;background:var(--wht);color:var(--b2);margin-left:4px">${g.protocol||'standard'}</span>
+          <div style="font-size:11px;font-weight:700;color:${urgent?'var(--amb)':'var(--g)'};margin-top:2px">${lbl}</div>
         </div>
-        ${graftDue?`<button class="btn bp bx" onclick="startScheduledGraft('${g.id}')">Start graft</button>`:''}
-        <button class="btn bo bx" onclick="delGraft('${g.id}')">×</button>
+        ${graftDue?`<button class="btn bp bx" onclick="startScheduledGraft('${g.id}')">Start</button>`:''}
+        <button class="btn bd bx" onclick="delGraft('${g.id}')">×</button>
       </div>`;
     }).join('')}
   </div>`;
@@ -549,8 +554,8 @@ function rDash(){
       ? `<button class="btn bp bs" onclick="updGraftFlag('${g.id}','${flagKey}',true);render()" style="background:var(--g)">✓ Done</button>`
       : `<button class="btn bp bs" onclick="openPanel('rec','${g.id}')">Open</button>`}
   </div>`;}).join('')}</div>`:'';
-  const active=G.filter(g=>!gDone(g)).sort((a,b)=>b.date.localeCompare(a.date));
-  const completed=G.filter(g=>gDone(g)).sort((a,b)=>b.date.localeCompare(a.date));
+  const active=G.filter(g=>!gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
+  const completed=G.filter(g=>gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
   return`${dueBanner}
     <div class="stats">
@@ -914,7 +919,7 @@ function rGraft(){
     <div class="field mt12"><label>Notes</label><textarea placeholder="Observations..." onchange="draft.notes=this.value">${f.notes||''}</textarea></div>
     <div class="brow mt12">
       <button class="btn bp" onclick="saveGraft()">Save graft</button>
-      ${!f.id&&!f.scheduled?`<button class="btn bo" onclick="scheduleGraft()">Schedule for later</button>`:''}
+      ${!f.id?`<button class="btn bo" onclick="scheduleGraft()">Schedule for later</button>`:''}
       <button class="btn bg" onclick="cancelGraft()">Cancel</button>
     </div>
   </div>`;
