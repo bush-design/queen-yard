@@ -443,7 +443,7 @@ function rDash(){
     </div>
     <div class="card">
       <div class="chd">Graft Batches <span class="ml"><button class="btn bp bx" onclick="go('graft')">+ New graft</button></span></div>
-      ${active.length?active.map(rGraftCard).join(''):(completed.length?'<p class="tsm" style="padding:8px 0">No active batches.</p>':'<div class="empty"><p>No grafts yet.</p></div>')}
+      ${active.length?active.map(rGraftCard).join(''):completed.length?'<p class="tsm" style="padding:8px 0">No active batches — all done!</p>':rOnboarding()}
       ${completed.length?`<div style="margin-top:${active.length?'10px':'0'}">
         <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--gl);border-radius:var(--rs);cursor:pointer"
           onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
@@ -483,9 +483,94 @@ function rApiary(){
   }).join('');
 }
 
+function rOnboarding(){
+  const hasHives=DB.hives.length>0;
+  const hasBreeders=hByType('breeder').length>0;
+  const hasFinishers=hByType('finisher').length>0;
+  const cloake=isCloake();
+  const steps=[
+    {
+      done:true,
+      icon:'🐝',
+      title:'Choose your rearing method',
+      desc:'Go to <strong>Hives</strong> and pick Starter/Finisher or Cloake Board.',
+      action:`go('hives')`,
+      btn:'Go to Hives'
+    },
+    {
+      done:hasBreeders,
+      icon:'👑',
+      title:'Add a Breeder hive',
+      desc:'Your breeder is the queen you graft larvae from.',
+      action:`go('hives')`,
+      btn:'Add Breeder'
+    },
+    {
+      done:hasFinishers,
+      icon:'🏠',
+      title:cloake?'Add a Cloake Board hive':'Add Finisher hives',
+      desc:cloake?'The single hive your cloake board attaches to.':'The hives that will raise the queen cells to completion.',
+      action:`go('hives')`,
+      btn:cloake?'Add Cloake hive':'Add Finishers'
+    },
+    {
+      done:!cloake&&hByType('starter').length>0||cloake,
+      icon:'🌱',
+      title:'Add Starter hives',
+      desc:'Starters accept the grafted larvae on Day 1.',
+      action:`go('hives')`,
+      btn:'Add Starters',
+      skip:cloake
+    },
+    {
+      done:DB.grafts.length>0,
+      icon:'✏️',
+      title:'Record your first graft',
+      desc:'Tap <strong>+ New graft</strong> to log your breeder, starters and cells grafted.',
+      action:`go('graft')`,
+      btn:'+ New graft'
+    }
+  ].filter(s=>!s.skip);
+
+  const nextStep=steps.find(s=>!s.done);
+
+  return`<div style="padding:8px 0">
+    <div style="font-size:16px;font-weight:800;color:var(--ink);margin-bottom:12px">Welcome to QCT 🐝</div>
+    <p class="tsm" style="margin-bottom:16px">Let's get you set up. Complete these steps to record your first graft.</p>
+    ${steps.map((s,i)=>`
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:var(--rs);margin-bottom:8px;
+        background:${s.done?'var(--gl)':s===nextStep?'var(--wht)':'var(--cr)'};
+        border:1.5px solid ${s.done?'var(--gm)':s===nextStep?'var(--g)':'var(--bdr)'};
+        opacity:${!s.done&&s!==nextStep?'.5':'1'}">
+        <div style="font-size:20px;line-height:1;margin-top:2px">${s.done?'✅':s.icon}</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:${s.done?'var(--g)':'var(--ink)'}">${s.title}</div>
+          <div class="txs" style="margin-top:2px">${s.desc}</div>
+        </div>
+        ${!s.done&&s===nextStep?`<button class="btn bp bx" onclick="${s.action}">${s.btn}</button>`:''}
+      </div>`).join('')}
+  </div>`;
+}
+
 function gNumber(g){
   const allSorted=DB.grafts.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
   return allSorted.findIndex(x=>x.id===g.id)+1;
+}
+
+// Assign consistent colours to graft dates — same date = same colour
+const GRAFT_COLOURS = [
+  {bg:'#dbeafe',border:'#93c5fd',text:'#1e40af'},  // blue
+  {bg:'#fef9c3',border:'#fde047',text:'#854d0e'},  // yellow
+  {bg:'#ffe4e6',border:'#fda4af',text:'#9f1239'},  // rose
+  {bg:'#f3e8ff',border:'#d8b4fe',text:'#6b21a8'},  // purple
+  {bg:'#ffedd5',border:'#fdba74',text:'#9a3412'},  // orange
+  {bg:'#d1fae5',border:'#6ee7b7',text:'#065f46'},  // teal
+];
+function graftColour(g){
+  // Get unique sorted list of graft dates
+  const dates=[...new Set(DB.grafts.map(x=>x.date))].sort();
+  const idx=dates.indexOf(g.date);
+  return GRAFT_COLOURS[idx % GRAFT_COLOURS.length];
 }
 
 function gFinisherLabel(g){
@@ -517,11 +602,12 @@ function rGraftCard(g){
     else if((f.capped!=null&&f.capped>0)||estCap2<=today()){stg='Capped';stgC='#92400e';}
     else{stg='Larval';stgC='#1e40af';}
     return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div style="font-size:9px;font-weight:700;color:${stgC}">${stg}</div><div class="txs">${f.cells_received||0} in</div><div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${f.out??'--'}</div>${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${fp}%</div>`:''}</div>`;}).join('');
-  return`<div class="gc">
-    <div class="gc-hd" onclick="this.nextElementSibling.classList.toggle('open')">
+  const gc=graftColour(g);
+  return`<div class="gc" style="border-color:${gc.border}">
+    <div class="gc-hd" style="background:${gc.bg}" onclick="this.nextElementSibling.classList.toggle('open')">
       <div style="flex:1">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span class="chip cstd" style="background:var(--g);color:var(--wht)">${gFinisherLabel(g)}</span>
+          <span class="chip" style="background:${gc.border};color:${gc.text};font-weight:800">${gFinisherLabel(g)}</span>
           <strong style="font-size:14px">${fmtF(g.date)}</strong>
           <span class="chip ${isA?'caut':'cstd'}">${isA?'Autumn':'Standard'}</span>
           <span class="chip cB" style="font-size:10px">${B?B.name:'?'}</span>
