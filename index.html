@@ -1272,7 +1272,17 @@ function rCal(){
   const td=today();
   let pm='';
   const mrow=cols.map(c=>{const mo=c.format('MMM YY');if(mo!==pm){pm=mo;return`<th style="text-align:left;background:#3D5432;color:var(--gm)">${mo}</th>`;}return`<th style="background:#3D5432"></th>`;}).join('');
-  const drow=cols.map(c=>{const it=c.format('YYYY-MM-DD')===td;return`<th style="padding:3px 4px;text-align:center;font-size:10px;background:${it?'var(--gm)':'var(--gl)'};color:${it?'#14532D':'var(--b3)'};font-weight:${it?'800':'400'};${it?'border-left:2px solid #14532D;border-right:2px solid #14532D;border-top:2px solid #14532D':''}">${c.format('D')}</th>`;}).join('');
+  const drow=cols.map(c=>{
+    const it=c.format('YYYY-MM-DD')===td;
+    const wk=c.day()===0||c.day()===6;
+    return`<th style="padding:3px 4px;text-align:center;font-size:10px;
+      background:${it?'var(--gm)':wk?'#fee2e2':'var(--gl)'};
+      color:${it?'#14532D':wk?'#dc2626':'var(--b3)'};
+      font-weight:${it||wk?'800':'400'};
+      ${it?'border-left:2px solid #14532D;border-right:2px solid #14532D;border-top:2px solid #14532D':''}">
+      ${c.format('D')}<br><span style="font-size:8px;opacity:.7">${wk?c.format('dd'):''}</span>
+    </th>`;
+  }).join('');
   const sorted=G.slice().sort((a,b)=>{const ac=gDone(a),bc=gDone(b);return ac!==bc?ac?1:-1:b.date.localeCompare(a.date);});
   let lastId=null;
   const todayIdx=cols.findIndex(c=>c.format('YYYY-MM-DD')===td);
@@ -1284,8 +1294,10 @@ function rCal(){
     const fins=(g.finishers||[]);const isNew=g.id!==lastId;lastId=g.id;const op=gDone(g)?'opacity:.4':'';
     const buildCell=(c,ci)=>{
       const ds=c.format('YYYY-MM-DD');const st=sm[ds];const it=ci===todayIdx;
+      const wk=c.day()===0||c.day()===6;
       const tb=it?'border-left:2px solid #14532D;border-right:2px solid #14532D':'';
-      return`<td style="padding:2px 3px;border:0.5px solid var(--bdr);${tb};background:${it?'#f0fdf4':'transparent'};text-align:center">${st?`<span style="border-radius:3px;padding:1px 4px;font-size:10px;${st.s}">${st.l}</span>`:''}</td>`;
+      const bg=it?'#f0fdf4':wk?'#fff5f5':'transparent';
+      return`<td style="padding:2px 3px;border:0.5px solid var(--bdr);${tb};background:${bg};text-align:center">${st?`<span style="border-radius:3px;padding:1px 4px;font-size:10px;${st.s}">${st.l}</span>`:''}</td>`;
     };
     if(!fins.length){
       const cells=cols.map(buildCell).join('');
