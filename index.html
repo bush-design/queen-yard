@@ -484,9 +484,18 @@ function rApiary(){
 }
 
 function gNumber(g){
-  // Stable graft number based on chronological order (1 = earliest date)
   const allSorted=DB.grafts.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
   return allSorted.findIndex(x=>x.id===g.id)+1;
+}
+
+function gFinisherLabel(g){
+  // Returns a short label listing finishers in this graft, e.g. "F1, F2, F3"
+  const fins=(g.finishers||[]).map(f=>hById(f.hive_id)).filter(Boolean);
+  if(!fins.length) return 'Graft '+gNumber(g);
+  const sorted=numSort(fins);
+  if(sorted.length<=3) return sorted.map(h=>h.name).join(', ');
+  // If more than 3, show first, last and count: "F1–F6 (6)"
+  return sorted[0].name+'–'+sorted[sorted.length-1].name+' ('+sorted.length+')';
 }
 
 function rGraftCard(g){
@@ -512,7 +521,7 @@ function rGraftCard(g){
     <div class="gc-hd" onclick="this.nextElementSibling.classList.toggle('open')">
       <div style="flex:1">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span class="chip cstd" style="background:var(--g);color:var(--wht)">Graft ${gNumber(g)}</span>
+          <span class="chip cstd" style="background:var(--g);color:var(--wht)">${gFinisherLabel(g)}</span>
           <strong style="font-size:14px">${fmtF(g.date)}</strong>
           <span class="chip ${isA?'caut':'cstd'}">${isA?'Autumn':'Standard'}</span>
           <span class="chip cB" style="font-size:10px">${B?B.name:'?'}</span>
@@ -748,7 +757,7 @@ function delGraft(id){if(!confirm('Delete this graft?'))return;DB.grafts=DB.graf
 function renderRecPanel(id){
   const g=gById(id);if(!g)return;
   const B=hById(g.breeder_id);const isA=g.protocol==='autumn';
-  document.getElementById('ptitle').textContent='Graft '+gNumber(g)+' -- '+fmtF(g.date)+(g.graft_time?' at '+g.graft_time:'')+' -- '+(B?B.name:'?');
+  document.getElementById('ptitle').textContent=gFinisherLabel(g)+' -- '+fmtF(g.date)+(g.graft_time?' at '+g.graft_time:'')+' -- '+(B?B.name:'?');
   document.getElementById('pactions').innerHTML=`<button class="btn bg bx" onclick="startEdit('${id}');closePanel()">Edit</button>`;
   const tGr=gGrafted(g),tOut=gOut(g),tMt=gMated(g);
   const tIn=(g.finishers||[]).reduce((a,f)=>a+(f.cells_received||0),0);
