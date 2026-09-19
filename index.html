@@ -565,7 +565,10 @@ function rDash(){
       <div class="stat"><div class="n">${sp!==null?sp+'%':'--'}</div><div class="l">Season %</div></div>
     </div>
     <div class="card">
-      <div class="chd">Graft Batches <span class="ml"><button class="btn bp bx" onclick="go('graft')">+ New graft</button></span></div>
+      <div class="chd">Graft Batches <span class="ml" style="display:flex;gap:6px">
+        <button class="btn bo bx" onclick="openScheduleModal()">Schedule</button>
+        <button class="btn bp bx" onclick="go('graft')">+ New graft</button>
+      </span></div>
       ${active.length?active.map(rGraftCard).join(''):completed.length?'<p class="tsm" style="padding:8px 0">No active batches — all done!</p>':rOnboarding()}
       ${completed.length?`<div style="margin-top:${active.length?'10px':'0'}">
         <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--gl);border-radius:var(--rs);cursor:pointer"
@@ -919,7 +922,7 @@ function rGraft(){
     <div class="field mt12"><label>Notes</label><textarea placeholder="Observations..." onchange="draft.notes=this.value">${f.notes||''}</textarea></div>
     <div class="brow mt12">
       <button class="btn bp" onclick="saveGraft()">Save graft</button>
-      ${!f.id?`<button class="btn bo" onclick="scheduleGraft()">Schedule for later</button>`:''}
+      ${!f.id?`<button class="btn bo" onclick="openScheduleModal()">Schedule</button>`:''}
       <button class="btn bg" onclick="cancelGraft()">Cancel</button>
     </div>
   </div>`;
@@ -963,6 +966,69 @@ function saveGraft(){
   save();draft=null;toast('Graft saved');go('dash');
 }
 function cancelGraft(){draft=null;go('dash');}
+
+function openScheduleModal(){
+  const existing=document.getElementById('schedule-modal');
+  if(existing)existing.remove();
+  const breeders=hByType('breeder').filter(h=>!h.retired);
+  const m=document.createElement('div');
+  m.id='schedule-modal';
+  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
+  m.innerHTML=`<div style="background:var(--wht);border-radius:16px 16px 0 0;padding:20px 16px 36px;width:100%;max-width:680px;box-shadow:0 -4px 24px rgba(0,0,0,.2)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <span style="font-size:16px;font-weight:800">Schedule a Graft</span>
+      <button onclick="document.getElementById('schedule-modal').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--b3)">×</button>
+    </div>
+    <div class="r2">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="sched-date" value="${dayjs().add(7,'day').format('YYYY-MM-DD')}">
+      </div>
+      <div class="field">
+        <label>Breeder</label>
+        <select id="sched-breeder">
+          <option value="">Select...</option>
+          ${breeders.map(h=>`<option value="${h.id}">${h.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="field mt12">
+      <label>Protocol</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
+        <button id="sched-std" class="pbtn active" onclick="document.getElementById('sched-std').classList.add('active');document.getElementById('sched-aut').classList.remove('active')">
+          Standard<span class="psub">10 days</span>
+        </button>
+        <button id="sched-aut" class="pbtn" onclick="document.getElementById('sched-aut').classList.add('active');document.getElementById('sched-std').classList.remove('active')">
+          Autumn<span class="psub">2 days</span>
+        </button>
+      </div>
+    </div>
+    <button class="btn bp bb mt12" onclick="saveScheduledGraft()">Schedule graft</button>
+  </div>`;
+  m.addEventListener('click',e=>{if(e.target===m)m.remove();});
+  document.body.appendChild(m);
+  setTimeout(()=>document.getElementById('sched-date')?.focus(),50);
+}
+
+function saveScheduledGraft(){
+  const date=document.getElementById('sched-date')?.value;
+  const breederId=document.getElementById('sched-breeder')?.value;
+  const protocol=document.getElementById('sched-aut')?.classList.contains('active')?'autumn':'standard';
+  if(!date){toast('Pick a date');return;}
+  const g={
+    id:uid(),date,protocol,breeder_id:breederId||'',
+    method:isCloake()?'cloake':'starter_finisher',
+    scheduled:true,started:false,
+    starters:[],finishers:[],notes:'',
+    graft_time:'',sky:'',temp:'',precip:false,precipTypes:[],
+    updated_at:new Date().toISOString()
+  };
+  DB.grafts.unshift(g);
+  save();
+  document.getElementById('schedule-modal')?.remove();
+  toast('Graft scheduled for '+fmtF(date));
+  render();
+}
 function scheduleGraft(){
   const f=draft;
   if(!f.breeder_id){toast('Select a breeder');return;}
