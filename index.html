@@ -421,7 +421,11 @@ function rDash(){
         {l:'Mated check',date:d.add(30,'day').format('YYYY-MM-DD'),done:(g.finishers||[]).some(f=>f.mated!=null)}];
     for(const c of checks){if(c.done)continue;const diff=dayjs(c.date).diff(dayjs(),'day');if(diff<=3&&diff>=-2){due.push({g,c,diff});break;}}
   });
-  const dueBanner=due.length?`<div class="due" style="border-width:2px"><div class="due-hd" style="font-size:16px;margin-bottom:10px">⚠ Action needed</div>${due.map(({g,c,diff})=>{const B=hById(g.breeder_id);const rd=relDay(c.date);const urgent=diff<=0;const bg=diff<0?'#fee2e2':diff===0?'#fef3c7':'var(--gl)';const txt=diff<0?'var(--red)':diff===0?'#b45309':'var(--g)';const lb=diff<0?Math.abs(diff)+'d overdue':rd||fmt(c.date);return`<div class="due-row" style="background:${bg};border-radius:var(--rs);padding:12px;border-bottom:none;margin-bottom:8px">
+  const dueBanner=due.length?`<div class="due" style="border-width:2px"><div class="due-hd" style="font-size:16px;margin-bottom:10px">⚠ Action needed</div>${due.map(({g,c,diff})=>{const B=hById(g.breeder_id);const rd=relDay(c.date);const bg=diff<0?'#fee2e2':diff===0?'#fef3c7':'var(--gl)';const txt=diff<0?'var(--red)':diff===0?'#b45309':'var(--g)';const lb=diff<0?Math.abs(diff)+'d overdue':rd||fmt(c.date);
+    const isSlideIn=c.l.includes('Slide in');const isSlideOut=c.l.includes('Slide out');
+    const canTick=isSlideIn||isSlideOut;
+    const flagKey=isSlideIn?'slide_in_done':'slide_out_done';
+    return`<div class="due-row" style="background:${bg};border-radius:var(--rs);padding:12px;border-bottom:none;margin-bottom:8px">
     <div style="flex:1">
       <strong style="font-size:14px">${fmtF(g.date)}${g.graft_time?' at '+g.graft_time:''} — ${B?B.name:'?'}</strong>
       <div class="tsm" style="margin-top:2px">${c.l}</div>
@@ -429,8 +433,10 @@ function rDash(){
     <div style="text-align:center">
       <div style="font-size:20px;font-weight:800;color:${txt};line-height:1">${lb}</div>
     </div>
-    <button class="btn bp bs" onclick="openPanel('rec','${g.id}')">Open</button>
-  </div>`;}).join('')}</div>`:'';;
+    ${canTick
+      ? `<button class="btn bp bs" onclick="updGraftFlag('${g.id}','${flagKey}',true);render()" style="background:var(--g)">✓ Done</button>`
+      : `<button class="btn bp bs" onclick="openPanel('rec','${g.id}')">Open</button>`}
+  </div>`;}).join('')}</div>`:'';
   const active=G.filter(g=>!gDone(g)).sort((a,b)=>b.date.localeCompare(a.date));
   const completed=G.filter(g=>gDone(g)).sort((a,b)=>b.date.localeCompare(a.date));
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
