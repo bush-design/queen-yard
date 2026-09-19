@@ -189,13 +189,13 @@ const LOG_TYPES=[
 ];
 
 // STATE
-let DB={hives:[],grafts:[],method:'starter_finisher',supaUrl:'',supaKey:''};
+let DB={hives:[],grafts:[],yard:[],method:'starter_finisher',supaUrl:'',supaKey:''};
 let pg='dash',panelMode=null,panelId=null,draft=null;
 
 // PERSIST
 function save(){
   try{
-    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,method:DB.method}));
+    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,yard:DB.yard,method:DB.method}));
     showSaved();
   }catch(e){toast('Save error: '+e.message);}
   supaPush();
@@ -207,7 +207,7 @@ function showSaved(){
 function loadLocal(){
   try{
     const r=localStorage.getItem('qct3');
-    if(r){const d=JSON.parse(r);DB.hives=d.hives||[];DB.grafts=d.grafts||[];DB.method=d.method||'starter_finisher';}
+    if(r){const d=JSON.parse(r);DB.hives=d.hives||[];DB.grafts=d.grafts||[];DB.yard=d.yard||[];DB.method=d.method||'starter_finisher';}
     const c=localStorage.getItem('qct_cfg2');
     if(c){const x=JSON.parse(c);DB.supaUrl=x.url||'';DB.supaKey=x.key||'';}
   }catch(e){console.error(e);}
@@ -240,7 +240,7 @@ async function supaLoad(){
     };
     DB.hives=merge(DB.hives,rh);
     DB.grafts=merge(DB.grafts,rg);
-    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,method:DB.method}));
+    localStorage.setItem('qct3',JSON.stringify({hives:DB.hives,grafts:DB.grafts,yard:DB.yard,method:DB.method}));
     setDot(true);
   }catch(e){console.error('Supa load:',e);setDot(false);}
 }
@@ -396,6 +396,73 @@ function openPanel(mode,id){
 function closePanel(){document.getElementById('main-panel').classList.remove('open');panelMode=null;panelId=null;}
 
 // DASHBOARD
+
+// ── Yard Checklist ──────────────────────────────────
+function rYardChecklist(){
+  const items=DB.yard||[];
+  return`<div class="card">
+    <div class="chd">Queen Yard <span class="txs ml">${items.length?items.length+' task'+(items.length!==1?'s':''):''}</span></div>
+    ${items.length?items.map((t,i)=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bdr)">
+        <input type="checkbox" style="width:20px;height:20px;accent-color:var(--g);cursor:pointer;flex-shrink:0"
+          onchange="tickYard(${i})">
+        <span style="font-size:14px;flex:1">${t.text}</span>
+      </div>`).join(''):'<p class="txs" style="margin-bottom:10px">No tasks yet — add something below.</p>'}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" id="yard-input" placeholder="Add a task..." style="flex:1;padding:9px 12px;font-size:14px"
+        onkeydown="if(event.key==='Enter')addYardTask()">
+      <button class="btn bp bs" onclick="addYardTask()">Add</button>
+    </div>
+  </div>`;
+}
+function addYardTask(){
+  const inp=document.getElementById('yard-input');
+  const text=(inp?.value||'').trim();
+  if(!text)return;
+  if(!DB.yard)DB.yard=[];
+  DB.yard.push({id:uid(),text});
+  save();render();
+}
+function tickYard(i){
+  if(!DB.yard)return;
+  DB.yard.splice(i,1);
+  save();render();
+}
+
+// ── Scheduled Grafts ────────────────────────────────
+function rScheduledGrafts(){
+  const scheduled=(DB.grafts||[]).filter(g=>g.scheduled&&!g.started);
+  if(!scheduled.length)return'';
+  return`<div class="card" style="border:1.5px solid var(--bdr)">
+    <div class="chd">Scheduled Grafts</div>
+    ${scheduled.sort((a,b)=>a.date.localeCompare(b.date)).map(g=>{
+      const B=hById(g.breeder_id);const d=dayjs(g.date);
+      const slideInDate=d.subtract(1,'day').format('YYYY-MM-DD');
+      const td=today();
+      const daysTo=d.diff(dayjs(),'day');
+      const isToday2=g.date===td;const isSoon=daysTo<=3&&daysTo>0;
+      const slideInDue=slideInDate===td;
+      const graftDue=isToday2;
+      return`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:${graftDue?'#fef3c7':slideInDue?'#dbeafe':'var(--gl)'};border-radius:var(--rs);margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:13px">${fmtF(g.date)} — ${B?B.name:'?'}</div>
+          <div class="txs">${graftDue?'Graft today':slideInDue?'🔲 Slide in today':isSoon?'In '+daysTo+'d':'In '+daysTo+'d'}</div>
+        </div>
+        ${graftDue?`<button class="btn bp bx" onclick="startScheduledGraft('${g.id}')">Start graft</button>`:''}
+        <button class="btn bo bx" onclick="delGraft('${g.id}')">×</button>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+function startScheduledGraft(id){
+  const g=gById(id);if(!g)return;
+  g.scheduled=false;g.started=true;
+  stamp(g);save();
+  // Open graft form pre-filled
+  draft={...g,starters:(g.starters||[]).map(s=>({...s}))};
+  go('graft');
+}
+
 function rDash(){
   const G=DB.grafts;
   const tGr=G.reduce((a,g)=>a+gGrafted(g),0);
@@ -406,6 +473,7 @@ function rDash(){
   const due=[];
   G.forEach(g=>{
     const d=dayjs(g.date);
+    if(g.scheduled) return; // scheduled grafts handled separately
     const isCloakeGraft = g.method==='cloake';
     const checks=g.protocol==='autumn'
       ?[{l:'Out',date:gOutDate(g),done:(g.finishers||[]).some(f=>f.out!=null)}]
@@ -420,6 +488,24 @@ function rDash(){
         {l:'Cells out',date:gOutDate(g),done:(g.finishers||[]).some(f=>f.out!=null)},
         {l:'Mated check',date:d.add(30,'day').format('YYYY-MM-DD'),done:(g.finishers||[]).some(f=>f.mated!=null)}];
     for(const c of checks){if(c.done)continue;const diff=dayjs(c.date).diff(dayjs(),'day');if(diff<=3&&diff>=-2){due.push({g,c,diff});break;}}
+  });
+  // Slide-in prompts for scheduled grafts
+  G.filter(g=>g.scheduled).forEach(g=>{
+    const d=dayjs(g.date);
+    const cloakeSched=g.method==='cloake';
+    const slideInDate=d.subtract(1,'day').format('YYYY-MM-DD');
+    const diff=d.diff(dayjs(),'day');
+    // Prompt slide in if due (day before graft) — only for cloake
+    if(cloakeSched){
+      const slideInDiff=dayjs(slideInDate).diff(dayjs(),'day');
+      if(slideInDiff<=1&&slideInDiff>=-1&&!g.slide_in_done){
+        due.push({g,c:{l:'🔲 Slide in (scheduled graft)',date:slideInDate},diff:slideInDiff});
+      }
+    }
+    // Prompt graft itself on the day
+    if(diff<=0&&diff>=-1){
+      due.push({g,c:{l:'Graft scheduled — ready to start',date:g.date},diff});
+    }
   });
   const dueBanner=due.length?`<div class="due" style="border-width:2px"><div class="due-hd" style="font-size:16px;margin-bottom:10px">⚠ Action needed</div>${due.map(({g,c,diff})=>{const B=hById(g.breeder_id);const rd=relDay(c.date);const bg=diff<0?'#fee2e2':diff===0?'#fef3c7':'var(--gl)';const txt=diff<0?'var(--red)':diff===0?'#b45309':'var(--g)';const lb=diff<0?Math.abs(diff)+'d overdue':rd||fmt(c.date);
     const isSlideIn=c.l.includes('Slide in');const isSlideOut=c.l.includes('Slide out');
@@ -462,6 +548,8 @@ function rDash(){
         </div>
       </div>`:''}
     </div>
+    ${rYardChecklist()}
+    ${rScheduledGrafts()}
     <div class="card">
       <div class="chd">Apiary <span class="txs">${bC}B · ${sC}S · ${fC}F</span>
         <span class="ml"><button class="btn bg bx" onclick="go('hives')">Manage</button></span></div>
@@ -800,6 +888,7 @@ function rGraft(){
     <div class="field mt12"><label>Notes</label><textarea placeholder="Observations..." onchange="draft.notes=this.value">${f.notes||''}</textarea></div>
     <div class="brow mt12">
       <button class="btn bp" onclick="saveGraft()">Save graft</button>
+      ${!f.id&&!f.scheduled?`<button class="btn bo" onclick="scheduleGraft()">Schedule for later</button>`:''}
       <button class="btn bg" onclick="cancelGraft()">Cancel</button>
     </div>
   </div>`;
@@ -843,6 +932,22 @@ function saveGraft(){
   save();draft=null;toast('Graft saved');go('dash');
 }
 function cancelGraft(){draft=null;go('dash');}
+function scheduleGraft(){
+  const f=draft;
+  if(!f.breeder_id){toast('Select a breeder');return;}
+  if(!f.date){toast('Select a date');return;}
+  const g={
+    id:f.id||uid(),date:f.date,protocol:f.protocol||'standard',breeder_id:f.breeder_id,
+    method:isCloake()?'cloake':'starter_finisher',
+    scheduled:true,started:false,
+    starters:[],finishers:[],notes:f.notes||'',
+    graft_time:'',sky:'',temp:'',precip:false,precipTypes:[],
+    updated_at:new Date().toISOString()
+  };
+  const idx=DB.grafts.findIndex(x=>x.id===g.id);
+  if(idx>=0)DB.grafts[idx]=g;else DB.grafts.unshift(g);
+  save();draft=null;toast('Graft scheduled for '+fmtF(g.date));go('dash');
+}
 function delGraft(id){if(!confirm('Delete this graft?'))return;DB.grafts=DB.grafts.filter(g=>g.id!==id);save();toast('Deleted');render();}
 
 // RECORD PANEL
