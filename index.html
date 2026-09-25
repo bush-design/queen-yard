@@ -572,55 +572,58 @@ function startScheduledGraft(id){
 
 
 function rFinisherStatus(){
-  // Collect all active finisher records across non-completed grafts
+  const allFinishers = numSort(hByType('finisher').filter(h=>!h.retired));
+  if(!allFinishers.length) return '';
   const activeGrafts = DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
-  if(!activeGrafts.length) return '';
-  const rows = [];
+
+  // Build a map of finisherId -> {stg, stgBg, stgTxt, gc}
+  const statusMap={};
   activeGrafts.forEach(g=>{
-    const d=dayjs(g.date);
-    const isA=g.protocol==='autumn';
-    const isCloakeG=g.method==='cloake';
     const gc=graftColour(g);
-    // Slide in/out for cloake
+    const isCloakeG=g.method==='cloake';
     if(isCloakeG){
-      const slideInDate=d.subtract(1,'day').format('YYYY-MM-DD');
-      const slideOutDate=d.add(1,'day').format('YYYY-MM-DD');
-      const H=hById(g.cloake_hive_id||(g.finishers||[])[0]?.hive_id);
-      if(H){
-        let stg,stgBg,stgTxt;
-        if(!g.slide_in_done){stg='Slide in';stgBg='#dbeafe';stgTxt='#1e40af';}
-        else if(!g.slide_out_done){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
-        else{
-          const fr=(g.finishers||[])[0];
-          if(fr?.out!=null){stg='Out';stgBg='var(--gl)';stgTxt='var(--g)';}
-          else if(fr?.capped!=null||gCapDate(g)<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-          else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-        }
-        rows.push({name:H.name,stg,stgBg,stgTxt,gc,gDate:g.date});
+      const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;
+      if(!fid)return;
+      let stg,stgBg,stgTxt;
+      if(!g.slide_in_done){stg='Slide in';stgBg='#dbeafe';stgTxt='#1e40af';}
+      else if(!g.slide_out_done){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+      else{
+        const fr=(g.finishers||[])[0];
+        if(fr?.out!=null){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
+        else if(fr?.capped!=null||gCapDate(g)<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+        else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
       }
+      statusMap[fid]={stg,stgBg,stgTxt,gc};
       return;
     }
     (g.finishers||[]).forEach(f=>{
-      const H=hById(f.hive_id);if(!H)return;
       const estCap=f.capped_date||gCapDate(g);
       let stg,stgBg,stgTxt;
       if(f.out!=null&&f.out>0){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
       else if((f.capped!=null&&f.capped>0)||estCap<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-      else if((g.finishers||[]).length>0){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-      else{stg='Waiting';stgBg='var(--cr)';stgTxt='var(--b3)';}
-      rows.push({name:H.name,stg,stgBg,stgTxt,gc,gDate:g.date,note:H.notes});
+      else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+      statusMap[f.hive_id]={stg,stgBg,stgTxt,gc};
     });
   });
-  if(!rows.length) return '';
-  return`<div style="margin-bottom:10px">
-    <div style="font-size:11px;font-weight:700;color:var(--b3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;padding:0 2px">Finisher Status</div>
-    <div style="display:flex;flex-wrap:wrap;gap:5px">
-      ${rows.map(r=>`<div style="display:flex;align-items:center;gap:5px;padding:5px 8px;
-          border-radius:20px;border:1.5px solid ${r.gc.border};background:${r.gc.bg}">
-        <span style="font-size:12px;font-weight:700;color:${r.gc.text}">${r.name}</span>
-        <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;
-          background:${r.stgBg};color:${r.stgTxt}">${r.stg}</span>
-      </div>`).join('')}
+
+  return`<div style="margin-bottom:8px">
+    <div style="font-size:10px;font-weight:700;color:var(--b3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;padding:0 2px">Finisher Status</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px">
+      ${allFinishers.map(h=>{
+        const s=statusMap[h.id];
+        const bg=s?s.gc.bg:'var(--wht)';
+        const border=s?s.gc.border:'var(--bdr)';
+        const nameCol=s?s.gc.text:'var(--b3)';
+        const stgBg=s?s.stgBg:'var(--cr)';
+        const stgTxt=s?s.stgTxt:'var(--b3)';
+        const stg=s?s.stg:'Free';
+        return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
+            border-radius:20px;border:1.5px solid ${border};background:${bg}">
+          <span style="font-size:11px;font-weight:700;color:${nameCol}">${h.name}</span>
+          <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
+            background:${stgBg};color:${stgTxt}">${stg}</span>
+        </div>`;
+      }).join('')}
     </div>
   </div>`;
 }
@@ -686,8 +689,7 @@ function rDash(){
   const active=G.filter(g=>!gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
   const completed=G.filter(g=>gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
-  return`${dueBanner}
-    ${rFinisherStatus()}
+  return`${rFinisherStatus()}
     <div class="stats" style="margin-bottom:8px">
       <div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div>
       <div class="stat"><div class="n">${onGo}</div><div class="l">On the go</div></div>
