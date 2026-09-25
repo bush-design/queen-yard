@@ -908,37 +908,26 @@ function rGraftCard(g){
       ${gp!==null?`<div class="txs mt8">Out / grafted</div>${pctBar(gp)}`:''}
 
       ${isCloakeG ? (()=>{
-        const cloakeFin=(g.finishers||[])[0];
-        const cH=hById(cloakeFin?.hive_id||g.cloake_hive_id);
-        const todayStr=today();
-        const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
-        const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
-        let stg,stgC;
-        if(cloakeFin?.out!=null&&cloakeFin.out>0){stg='Out ✓';stgC='var(--g)';}
-        else if((cloakeFin?.capped!=null&&cloakeFin.capped>0)||gCapDate(g)<=todayStr){stg='Capped';stgC='#92400e';}
-        else if(todayStr>=larvalDate){stg='Larval';stgC='#1e40af';}
-        else if(todayStr>=slideOutDate){stg='Slide out';stgC='#92400e';}
-        else{stg='Slide in';stgC='#6b21a8';}
-        const fp=pct(cloakeFin?.out||0,cloakeFin?.cells_received||0);
-        return`<div class="mt12" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
-          <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
-            onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
-            <span style="font-size:12px;font-weight:700">Cloake Hive</span>
-            <span class="chev ml" style="color:var(--b3)">›</span>
-          </div>
-          <div style="display:none;align-items:flex-start;gap:8px;flex-wrap:wrap;padding:10px 12px">
-            <div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:60px">
-              <div style="font-size:11px;font-weight:700;color:var(--g)">${B?B.name:'?'}</div>
-              <div class="txs">${tGr} grafted</div>
-            </div>
-            <div style="color:var(--b3);font-size:16px;padding-top:6px">→</div>
-            <div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:60px">
-              <div style="font-size:11px;font-weight:700;color:var(--g)">${cH?cH.name:'?'}</div>
-              <div style="font-size:9px;font-weight:700;color:${stgC}">${stg}</div>
-              ${cloakeFin?`<div class="txs">${cloakeFin.cells_received||0} in</div>
-              <div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${cloakeFin.out??'--'}</div>`:'<div class="txs">Not assigned</div>'}
-            </div>
-          </div>
+        const cf=(g.finishers||[])[0];
+        const grafted=tGr||0;
+        const started=cf?.cells_received||grafted;
+        const capped=cf?.capped||0;
+        const out=cf?.out||0;
+        const mated=cf?.mated||0;
+        function statPill(label,val,total,col){
+          const p=total>0?Math.round(val/total*100):null;
+          const colFn=p===null?'var(--b3)':p>=70?'var(--g)':p>=40?'var(--amb)':'var(--red)';
+          return`<div style="flex:1;text-align:center;padding:8px 4px;background:var(--cr);border-radius:var(--rs)">
+            <div style="font-size:18px;font-weight:800;color:${col||colFn}">${val||'--'}</div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--b3);margin-bottom:2px">${label}</div>
+            ${p!==null?`<div style="font-size:10px;font-weight:700;color:${colFn}">${p}%</div>`:''}
+          </div>`;
+        }
+        return`<div style="display:flex;gap:6px;margin-top:10px">
+          ${statPill('Started',started,grafted,'#1e40af')}
+          ${statPill('Capped',capped,grafted,'#92400e')}
+          ${statPill('Out',out,grafted)}
+          ${statPill('Mated',mated,grafted)}
         </div>`;
       })() : `
       <div class="mt12" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
@@ -1401,22 +1390,7 @@ function renderRecPanel(id){
       ${gp!==null?`<div class="lbl">Out / grafted</div>${pctBar(gp)}`:''}
     </div>
     ${(g.starters||[]).length?`<div class="card"><div class="chd">Starters</div>${stSummary}</div>`:''}
-    ${isCloakeRec?`<div class="card">
-      <div class="chd">Cloake Board Prompts</div>
-      <div style="display:flex;gap:8px;margin-bottom:4px">
-        <button class="btn ${g.slide_in_done?'bp':'bo'} bs" style="flex:1;gap:8px"
-          onclick="updGraftFlag('${id}','slide_in_done',!${!!g.slide_in_done});renderRecPanel('${id}')">
-          🔲 Slide in${g.slide_in_done?' ✓':' (day before graft)'}
-        </button>
-      </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn ${g.slide_out_done?'bp':'bo'} bs" style="flex:1;gap:8px"
-          onclick="updGraftFlag('${id}','slide_out_done',!${!!g.slide_out_done});renderRecPanel('${id}')">
-          🔳 Slide out${g.slide_out_done?' ✓':' (day after graft)'}
-        </button>
-      </div>
-    </div>`:''}
-    ${(()=>{
+    ${isCloakeRec?'':(()=>{
       // Determine if everything is already allocated (collapse by default if so)
       const allAllocated = !noStarters && (g.starters||[]).every(s=>{
         const acc = s.cells_accepted!=null ? s.cells_accepted : 0;
@@ -1447,7 +1421,7 @@ function renderRecPanel(id){
             </div>`}
         </div>
       </div>`;
-    })()}
+    })())}
     <div class="card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:center;gap:8px;padding:18px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
         <span style="font-size:15px;font-weight:700">Finisher Records</span>
