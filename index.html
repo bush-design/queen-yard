@@ -914,7 +914,7 @@ function rGraftCard(g){
         const capped=cf?.capped||0;
         const out=cf?.out||0;
         const mated=cf?.mated||0;
-        function statPill(label,val,total,col){
+        const statPill=(label,val,total,col)=>{
           const p=total>0?Math.round(val/total*100):null;
           const colFn=p===null?'var(--b3)':p>=70?'var(--g)':p>=40?'var(--amb)':'var(--red)';
           return`<div style="flex:1;text-align:center;padding:8px 4px;background:var(--cr);border-radius:var(--rs)">
@@ -922,7 +922,7 @@ function rGraftCard(g){
             <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--b3);margin-bottom:2px">${label}</div>
             ${p!==null?`<div style="font-size:10px;font-weight:700;color:${colFn}">${p}%</div>`:''}
           </div>`;
-        }
+        };
         return`<div style="display:flex;gap:6px;margin-top:10px">
           ${statPill('Started',started,grafted,'#1e40af')}
           ${statPill('Capped',capped,grafted,'#92400e')}
