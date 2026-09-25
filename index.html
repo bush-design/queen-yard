@@ -585,14 +585,15 @@ function rFinisherStatus(){
       const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;
       if(!fid)return;
       let stg,stgBg,stgTxt;
-      if(!g.slide_in_done){stg='Slide in';stgBg='#dbeafe';stgTxt='#1e40af';}
-      else if(!g.slide_out_done){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
-      else{
-        const fr=(g.finishers||[])[0];
-        if(fr?.out!=null){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
-        else if(fr?.capped!=null||gCapDate(g)<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-        else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-      }
+      const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
+      const todayStr=today();
+      const fr=(g.finishers||[])[0];
+      if(fr?.out!=null){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
+      else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+      else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+      else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+      else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
       statusMap[fid]={stg,stgBg,stgTxt,gc};
       return;
     }
