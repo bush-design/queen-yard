@@ -576,8 +576,12 @@ function rFinisherStatus(){
   if(!allFinishers.length) return '';
   const activeGrafts = DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
 
-  // Build a map of finisherId -> {stg, stgBg, stgTxt, gc}
+  // Build a map of finisherId -> array of {stg, stgBg, stgTxt, gc}
   const statusMap={};
+  function addStatus(fid,entry){
+    if(!statusMap[fid])statusMap[fid]=[];
+    statusMap[fid].push(entry);
+  }
   activeGrafts.forEach(g=>{
     const gc=graftColour(g);
     const isCloakeG=g.method==='cloake';
@@ -594,7 +598,7 @@ function rFinisherStatus(){
       else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
       else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
       else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
-      statusMap[fid]={stg,stgBg,stgTxt,gc};
+      addStatus(fid,{stg,stgBg,stgTxt,gc});
       return;
     }
     (g.finishers||[]).forEach(f=>{
@@ -603,7 +607,7 @@ function rFinisherStatus(){
       if(f.out!=null&&f.out>0){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
       else if((f.capped!=null&&f.capped>0)||estCap<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
       else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-      statusMap[f.hive_id]={stg,stgBg,stgTxt,gc};
+      addStatus(f.hive_id,{stg,stgBg,stgTxt,gc});
     });
   });
 
@@ -611,18 +615,33 @@ function rFinisherStatus(){
     <div style="font-size:10px;font-weight:700;color:var(--b3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;padding:0 2px">Finisher Status</div>
     <div style="display:flex;flex-wrap:wrap;gap:4px">
       ${allFinishers.map(h=>{
-        const s=statusMap[h.id];
-        const bg=s?s.gc.bg:'var(--wht)';
-        const border=s?s.gc.border:'var(--bdr)';
-        const nameCol=s?s.gc.text:'var(--b3)';
-        const stgBg=s?s.stgBg:'var(--cr)';
-        const stgTxt=s?s.stgTxt:'var(--b3)';
-        const stg=s?s.stg:'Free';
+        const entries=statusMap[h.id];
+        if(!entries||!entries.length){
+          // Free hive
+          return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
+              border-radius:20px;border:1.5px solid var(--bdr);background:var(--wht)">
+            <span style="font-size:11px;font-weight:700;color:var(--b3)">${h.name}</span>
+            <span style="font-size:9px;font-weight:700;color:var(--b3)">Free</span>
+          </div>`;
+        }
+        if(entries.length===1){
+          const s=entries[0];
+          return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
+              border-radius:20px;border:1.5px solid ${s.gc.border};background:${s.gc.bg}">
+            <span style="font-size:11px;font-weight:700;color:${s.gc.text}">${h.name}</span>
+            <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
+              background:${s.stgBg};color:${s.stgTxt}">${s.stg}</span>
+          </div>`;
+        }
+        // Multiple batches — split pill with diagonal gradient border, stacked stage badges
+        const gradStops=entries.map((s,i)=>s.gc.bg+' '+(i/entries.length*100)+'% '+(((i+1)/entries.length)*100)+'%').join(', ');
+        const borderCol=entries[0].gc.border;
         return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
-            border-radius:20px;border:1.5px solid ${border};background:${bg}">
-          <span style="font-size:11px;font-weight:700;color:${nameCol}">${h.name}</span>
-          <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
-            background:${stgBg};color:${stgTxt}">${stg}</span>
+            border-radius:20px;border:1.5px solid ${borderCol};
+            background:linear-gradient(90deg,${gradStops})">
+          <span style="font-size:11px;font-weight:700;color:${entries[0].gc.text}">${h.name}</span>
+          ${entries.map(s=>`<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
+            background:${s.stgBg};color:${s.stgTxt}">${s.stg}</span>`).join('')}
         </div>`;
       }).join('')}
     </div>
@@ -888,6 +907,40 @@ function rGraftCard(g){
       <div class="tl">${tl}</div>
       ${gp!==null?`<div class="txs mt8">Out / grafted</div>${pctBar(gp)}`:''}
 
+      ${isCloakeG ? (()=>{
+        const cloakeFin=(g.finishers||[])[0];
+        const cH=hById(cloakeFin?.hive_id||g.cloake_hive_id);
+        const todayStr=today();
+        const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+        const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
+        let stg,stgC;
+        if(cloakeFin?.out!=null&&cloakeFin.out>0){stg='Out ✓';stgC='var(--g)';}
+        else if((cloakeFin?.capped!=null&&cloakeFin.capped>0)||gCapDate(g)<=todayStr){stg='Capped';stgC='#92400e';}
+        else if(todayStr>=larvalDate){stg='Larval';stgC='#1e40af';}
+        else if(todayStr>=slideOutDate){stg='Slide out';stgC='#92400e';}
+        else{stg='Slide in';stgC='#6b21a8';}
+        const fp=pct(cloakeFin?.out||0,cloakeFin?.cells_received||0);
+        return`<div class="mt12" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
+            onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+            <span style="font-size:12px;font-weight:700">Cloake Hive</span>
+            <span class="chev ml" style="color:var(--b3)">›</span>
+          </div>
+          <div style="display:none;align-items:flex-start;gap:8px;flex-wrap:wrap;padding:10px 12px">
+            <div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:60px">
+              <div style="font-size:11px;font-weight:700;color:var(--g)">${B?B.name:'?'}</div>
+              <div class="txs">${tGr} grafted</div>
+            </div>
+            <div style="color:var(--b3);font-size:16px;padding-top:6px">→</div>
+            <div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:60px">
+              <div style="font-size:11px;font-weight:700;color:var(--g)">${cH?cH.name:'?'}</div>
+              <div style="font-size:9px;font-weight:700;color:${stgC}">${stg}</div>
+              ${cloakeFin?`<div class="txs">${cloakeFin.cells_received||0} in</div>
+              <div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${cloakeFin.out??'--'}</div>`:'<div class="txs">Not assigned</div>'}
+            </div>
+          </div>
+        </div>`;
+      })() : `
       <div class="mt12" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
         <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
           onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
@@ -913,7 +966,7 @@ function rGraftCard(g){
         <div style="display:none;align-items:center;gap:4px;flex-wrap:wrap;padding:10px 12px">
           ${finBoxes||'<span class="txs">Not assigned yet</span>'}
         </div>
-      </div>
+      </div>`}
 
       ${(g.yards||[]).length?`<div class="mt8" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
         <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
