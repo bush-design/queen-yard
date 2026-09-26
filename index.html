@@ -597,6 +597,7 @@ function rFinisherStatus(){
       else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
       else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
       else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+      else if(todayStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
       else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
       addStatus(fid,{stg,stgBg,stgTxt,gc});
       return;
@@ -705,6 +706,7 @@ function rYardMap(){
       else if((fr?.capped!=null)||gCapDate(g)<=todayStr) stageLabel='Capped';
       else if(todayStr>=larvalDate) stageLabel='Larval';
       else if(todayStr>=slideOutDate) stageLabel='Slide↑';
+      else if(todayStr===g.date) stageLabel='Starting';
       else stageLabel='Slide↓';
     }
 
@@ -766,6 +768,7 @@ function showHiveMapPopup(hid){
     else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
     else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
     else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+    else if(todayStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
     else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
 
     // Slide in button: only for cloake grafts where slide_in not yet done and we're within range
