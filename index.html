@@ -648,9 +648,7 @@ function rFinisherStatus(){
   </div>`;
 }
 function rYardMap(){
-  // Fixed hive positions [id, x, y] matching hand-drawn layout
-  // x,y in a 420x400 viewBox; breeders auto-detected by type
-  const hives=[
+  const HIVE_POSITIONS=[
     ['F10',248,42],['F11',292,42],
     ['F8',148,92],['F9',192,92],['F13',258,110],['F12',302,110],
     ['F5',68,150],['F18',112,150],['F15',204,157],['F14',248,157],
@@ -658,57 +656,149 @@ function rYardMap(){
     ['F7',30,270],['F6',74,270],
     ['F3',112,342],['F2',156,342],['B3',214,342],['B2',258,342],['F19',316,342],['B4',360,342],
   ];
-  const pills=hives.map(([name,x,y])=>{
+  const activeGrafts=DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
+  const todayStr=today();
+
+  const boxes=HIVE_POSITIONS.map(([name,x,y])=>{
     const h=DB.hives.find(h=>h.name===name);
     const isB=h?.type==='breeder';
     const isS=h?.type==='starter';
     const retired=h?.retired;
-    let fill=isB?'#f0c84a':isS?'#93c5fd':'#c8d4a0';
-    let stroke=isB?'#b08a10':isS?'#3b82f6':'#7a8a5a';
-    let textFill=isB?'#5a3a00':isS?'#1e3a8a':'#2a3a1a';
-    if(retired){fill='#d1d5db';stroke='#9ca3af';textFill='#6b7280';}
-    // Find active graft status for finishers
-    let statusDot='';
-    if(h&&!isB&&!isS&&!retired){
-      const activeBatches=DB.grafts.filter(g=>!gDone(g)&&(g.finishers||[]).some(f=>f.hive_id===h.id));
-      if(activeBatches.length){
-        // Use the stage colour from the first active batch
-        const g=activeBatches[0];
-        const todayStr=today();
-        const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
-        const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
-        const fr=(g.finishers||[]).find(f=>f.hive_id===h.id);
-        let dotCol='#6b21a8';
-        if(fr?.out!=null){dotCol='#16a34a';}
-        else if((fr?.capped!=null)||gCapDate(g)<=todayStr){dotCol='#92400e';}
-        else if(todayStr>=larvalDate){dotCol='#1e40af';}
-        else if(todayStr>=slideOutDate){dotCol='#92400e';}
-        statusDot=`<circle cx="${x+33}" cy="${y+4}" r="4" fill="${dotCol}" stroke="#fff" stroke-width="1"/>`;
-        stroke='#3b82f6';
+
+    // Find all active batches for this hive
+    const batches=h?activeGrafts.filter(g=>{
+      if(g.method==='cloake'){
+        const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;
+        return fid===h.id;
       }
+      return (g.finishers||[]).some(f=>f.hive_id===h.id);
+    }):[];
+
+    // Determine fill — use graft colour(s) if active, else type defaults
+    let fill,stroke,textFill;
+    if(batches.length===0||isB||isS||retired){
+      fill=retired?'#4a4a4a':isB?'#b08a10':isS?'#3b82f6':'#5a6e4a';
+      stroke=retired?'#666':isB?'#f0c84a':isS?'#93c5fd':'#8aaa7a';
+      textFill=retired?'#999':'#fff';
+    } else if(batches.length===1){
+      const gc=graftColour(batches[0]);
+      fill=gc.bg; stroke=gc.border; textFill=gc.text;
+    } else {
+      // Multiple — use first batch colour, add stripe later
+      const gc=graftColour(batches[0]);
+      fill=gc.bg; stroke=gc.border; textFill=gc.text;
     }
-    const onclick=h?`openPanel('hive','${h.id}')`:'' ;
-    return`<g onclick="${onclick}" style="cursor:${h?'pointer':'default'}">
-      <rect x="${x}" y="${y}" width="38" height="26" rx="3" fill="${fill}" stroke="${stroke}" stroke-width="${h?'2':'1.5'}"/>
-      <text x="${x+19}" y="${y+13}" fill="${textFill}" font-size="9" font-weight="800" text-anchor="middle" dominant-baseline="middle">${name}</text>
-      ${statusDot}
+
+    // Stage label for active finisher
+    let stageLabel='';
+    if(batches.length&&!isB&&!isS&&!retired){
+      const g=batches[0];
+      const isCloake=g.method==='cloake';
+      const fr=isCloake?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===h.id);
+      const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
+      if(fr?.out!=null) stageLabel='Out';
+      else if((fr?.capped!=null)||gCapDate(g)<=todayStr) stageLabel='Capped';
+      else if(todayStr>=larvalDate) stageLabel='Larval';
+      else if(todayStr>=slideOutDate) stageLabel='Slide↑';
+      else stageLabel='Slide↓';
+    }
+
+    // Stripe pattern id for multi-batch
+    let defs='';
+    let rectFill=fill;
+    if(batches.length>1){
+      const pid='mp'+name.replace(/\W/g,'');
+      const cols=batches.map(b=>graftColour(b).bg);
+      const sw=Math.ceil(38/batches.length);
+      const stripes=cols.map((c,i)=>`<rect x="${i*sw}" y="0" width="${sw}" height="26" fill="${c}"/>`).join('');
+      defs=`<defs><pattern id="${pid}" x="${x}" y="${y}" width="38" height="26" patternUnits="userSpaceOnUse">${stripes}</pattern></defs>`;
+      rectFill=`url(#${pid})`;
+    }
+
+    const onclick=h?`showHiveMapPopup('${h.id}')`:'' ;
+    const cursor=h?'pointer':'default';
+
+    return defs+`<g onclick="${onclick}" style="cursor:${cursor}">
+      <rect x="${x}" y="${y}" width="38" height="26" rx="3" fill="${rectFill}" stroke="${stroke}" stroke-width="1.8"/>
+      <text x="${x+19}" y="${y+(stageLabel?9:13)}" fill="${textFill}" font-size="9" font-weight="800" text-anchor="middle" dominant-baseline="middle">${name}</text>
+      ${stageLabel?`<text x="${x+19}" y="${y+20}" fill="${textFill}" font-size="7" font-weight="700" text-anchor="middle" dominant-baseline="middle" opacity="0.85">${stageLabel}</text>`:''}
     </g>`;
   }).join('');
+
   return`<div class="card" style="padding:10px 10px 6px">
     <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Yard Map</div>
     <svg viewBox="0 0 420 385" style="width:100%;border-radius:6px;overflow:hidden" xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width="420" height="385" fill="#3d4f2e" rx="6"/>
       <rect x="8" y="8" width="404" height="369" fill="none" stroke="#4a5e38" stroke-width="1" rx="5" stroke-dasharray="3,4"/>
-      <text x="210" y="24" fill="#6a8a55" font-size="10" text-anchor="middle" opacity="0.8">← N treeline</text>
       <text x="408" y="380" fill="#6a8a55" font-size="9" text-anchor="end" opacity="0.7">📷</text>
-      ${pills}
-      <!-- legend -->
-      <rect x="12" y="360" width="14" height="10" rx="2" fill="#c8d4a0" stroke="#7a8a5a" stroke-width="1"/>
-      <text x="29" y="368" fill="#9ab880" font-size="8" dominant-baseline="middle">Finisher</text>
-      <rect x="80" y="360" width="14" height="10" rx="2" fill="#f0c84a" stroke="#b08a10" stroke-width="1.5"/>
-      <text x="97" y="368" fill="#9ab880" font-size="8" dominant-baseline="middle">Breeder</text>
+      ${boxes}
     </svg>
   </div>`;
+}
+
+function showHiveMapPopup(hid){
+  const h=hById(hid);if(!h)return;
+  const isB=h.type==='breeder';
+  const isF=h.type==='finisher';
+  const todayStr=today();
+  const activeGrafts=DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
+
+  // Find active batches for this hive
+  const batches=activeGrafts.filter(g=>{
+    if(g.method==='cloake'){const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;return fid===hid;}
+    return (g.finishers||[]).some(f=>f.hive_id===hid);
+  });
+
+  // Build batch info rows
+  const batchRows=batches.map(g=>{
+    const gc=graftColour(g);
+    const isCloake=g.method==='cloake';
+    const fr=isCloake?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===hid);
+    const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+    const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
+    let stg,stgBg,stgTxt;
+    if(fr?.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
+    else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+    else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+    else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+    else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
+
+    // Slide in button: only for cloake grafts where slide_in not yet done and we're within range
+    const canSlideIn=isCloake&&!g.slide_in_done&&todayStr>=dayjs(g.date).subtract(1,'day').format('YYYY-MM-DD')&&todayStr<g.date;
+    const canSlideOut=isCloake&&g.slide_in_done&&!g.slide_out_done&&todayStr>=slideOutDate;
+
+    return`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bdr)">
+      <div style="width:10px;height:10px;border-radius:3px;flex-shrink:0;background:${gc.bg};border:1.5px solid ${gc.border}"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:700">${fmtF(g.date)} · ${gGrafted(g)} grafted</div>
+        <div style="font-size:10px;color:var(--b3)">${isCloake?'Cloake':'Standard'}</div>
+      </div>
+      <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:${stgBg};color:${stgTxt}">${stg}</span>
+      ${canSlideIn?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_in_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in</button>`:''}
+      ${canSlideOut?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_out_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔳 Slide out</button>`:''}
+    </div>`;
+  }).join('');
+
+  const cc=isB?'cB':h.type==='starter'?'cS':'cF';
+  const m=document.createElement('div');
+  m.id='hive-map-popup';
+  m.style.cssText='position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
+  m.innerHTML=`<div style="background:var(--wht);border-radius:16px 16px 0 0;padding:20px 16px 36px;width:100%;max-width:680px;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <span class="chip ${cc}">${h.name}</span>
+      <span style="font-size:15px;font-weight:700">${h.name}</span>
+      ${h.queen_status&&h.queen_status!=='unknown'?`<span style="font-size:11px;color:var(--b3)">${h.queen_status}</span>`:''}
+      <button onclick="document.getElementById('hive-map-popup').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--b3)">×</button>
+    </div>
+    ${batches.length?`<div style="margin-bottom:12px">${batchRows}</div>`:'<p class="tsm" style="margin-bottom:12px;color:var(--b3)">No active batches</p>'}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('hive','${hid}')">Hive details →</button>
+      ${isF&&batches.length===0?`<button class="btn bo bs" onclick="document.getElementById('hive-map-popup').remove();go('graft')">+ New graft</button>`:''}
+    </div>
+  </div>`;
+  m.addEventListener('click',e=>{if(e.target===m)m.remove();});
+  document.body.appendChild(m);
 }
 
 function rDash(){
