@@ -604,9 +604,13 @@ function rFinisherStatus(){
     }
     (g.finishers||[]).forEach(f=>{
       const estCap=f.capped_date||gCapDate(g);
+      const tdStr=today();
+      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
       let stg,stgBg,stgTxt;
       if(f.out!=null&&f.out>0){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
-      else if((f.capped!=null&&f.capped>0)||estCap<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+      else if((f.capped!=null&&f.capped>0)||estCap<=tdStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+      else if(tdStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+      else if(tdStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
       else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
       addStatus(f.hive_id,{stg,stgBg,stgTxt,gc});
     });
@@ -618,11 +622,13 @@ function rFinisherStatus(){
       ${allFinishers.map(h=>{
         const entries=statusMap[h.id];
         if(!entries||!entries.length){
-          // Free hive
+          const isPrepared=!!h.slide_prepared;
           return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
-              border-radius:20px;border:1.5px solid var(--bdr);background:var(--wht)">
-            <span style="font-size:11px;font-weight:700;color:var(--b3)">${h.name}</span>
-            <span style="font-size:9px;font-weight:700;color:var(--b3)">Free</span>
+              border-radius:20px;border:1.5px solid ${isPrepared?'#34d399':'var(--bdr)'};background:${isPrepared?'#d1fae5':'var(--wht)'}">
+            <span style="font-size:11px;font-weight:700;color:${isPrepared?'#065f46':'var(--b3)'}">${h.name}</span>
+            <span style="font-size:9px;font-weight:700;color:${isPrepared?'#065f46':'var(--b3)'}">
+              ${isPrepared?'Ready':'Free'}
+            </span>
           </div>`;
         }
         if(entries.length===1){
