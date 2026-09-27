@@ -1336,6 +1336,7 @@ function saveGraft(){
     graft_time:f.graft_time||new Date().toTimeString().slice(0,5),
     method:cloakeMode?'cloake':'starter_finisher',
     cloake_hive_id:f.cloake_hive_id||null,
+    grafted:f.grafted||0,
     starters:cloakeMode?[]:(f.starters||[]).filter(s=>s.cells_in>0),
     finishers:cloakeMode?existingFinishers:existingFinishers,
     notes:f.notes||'',sky:f.sky||'',temp:f.temp||'',precip:f.precip||false,precipTypes:f.precipTypes||[],updated_at:new Date().toISOString()
