@@ -353,8 +353,9 @@ async function supaPush(){
   try{
     const ts=new Date().toISOString();
     const hr=DB.hives.map(h=>({id:h.id,type:h.type,name:h.name,queen_status:h.queen_status||'unknown',
-      strength:h.strength||3,notes:h.notes||'',log:h.log||[],updated_at:h.updated_at||ts}));
+      strength:h.strength||3,notes:h.notes||'',log:h.log||[],slide_prepared:h.slide_prepared||null,retired:h.retired||false,updated_at:h.updated_at||ts}));
     const gr=DB.grafts.map(g=>({id:g.id,date:g.date,protocol:g.protocol,breeder_id:g.breeder_id,
+      grafted:g.grafted||0,method:g.method||'starter_finisher',cloake_hive_id:g.cloake_hive_id||null,
       starters:g.starters||[],finishers:g.finishers||[],notes:g.notes||'',updated_at:g.updated_at||ts}));
     await Promise.all([
       fetch(supaBase('qct_hives'),{method:'POST',headers:{...supaHdr(),'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(hr)}),
@@ -733,7 +734,7 @@ function rYardMap(){
     const onclick=h?`showHiveMapPopup('${h.id}')`:'' ;
     const cursor=h?'pointer':'default';
 
-    const slideReady=h?.slide_prepared&&batches.length>0;
+    const slideReady=!!h?.slide_prepared;
     return defs+`<g onclick="${onclick}" style="cursor:${cursor}">
       <rect x="${x}" y="${y}" width="38" height="26" rx="3" fill="${rectFill}" stroke="${stroke}" stroke-width="1.8"/>
       <text x="${x+19}" y="${y+(stageLabel?9:13)}" fill="${textFill}" font-size="9" font-weight="800" text-anchor="middle" dominant-baseline="middle">${name}</text>
@@ -835,7 +836,7 @@ function showHiveMapPopup(hid){
       <button onclick="document.getElementById('hive-map-popup').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--b3)">×</button>
     </div>
     ${batches.length?`<div style="margin-bottom:12px">${batchRows}</div>`:'<p class="tsm" style="margin-bottom:12px;color:var(--b3)">No active batches</p>'}
-    ${!h.retired&&batches.length===0?`<div style="padding:10px 0 14px;border-bottom:1px solid var(--bdr);margin-bottom:12px">
+    ${!h.retired?`<div style="padding:10px 0 14px;border-bottom:1px solid var(--bdr);margin-bottom:12px">
       <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Cloake prep</div>
       ${h.slide_prepared?`<div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:13px">🟩</span>
