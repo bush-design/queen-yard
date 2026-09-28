@@ -836,14 +836,25 @@ function showHiveMapPopup(hid){
       <button onclick="document.getElementById('hive-map-popup').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--b3)">×</button>
     </div>
     ${batches.length?`<div style="margin-bottom:12px">${batchRows}</div>`:'<p class="tsm" style="margin-bottom:12px;color:var(--b3)">No active batches</p>'}
-    ${!h.retired?`<div style="padding:10px 0 14px;border-bottom:1px solid var(--bdr);margin-bottom:12px">
-      <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Cloake prep</div>
-      ${h.slide_prepared?`<div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:13px">🟩</span>
-        <span style="font-size:12px;font-weight:600;color:#065f46">Slide in — ${h.slide_prepared}</span>
-        <button class="btn bo" style="font-size:11px;margin-left:auto" onclick="const hh=hById('${hid}');hh.slide_prepared=null;stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">Undo</button>
-      </div>`:`<button class="btn bp bs" onclick="const hh=hById('${hid}');hh.slide_prepared='${todayStr}';stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in done</button>`}
-    </div>`:''}
+    ${(()=>{
+      if(h.retired) return '';
+      // Show cloake prep if: no batches (free hive), OR any batch is Capped/Out, OR slide already set
+      const anyCapped=batches.some(g=>{
+        const fr=(g.finishers||[]).find(f=>f.hive_id===hid)||(g.finishers||[])[0];
+        return (fr?.capped!=null)||gCapDate(g)<=todayStr||fr?.out!=null;
+      });
+      if(!batches.length||anyCapped||h.slide_prepared){
+        return`<div style="padding:10px 0 14px;border-bottom:1px solid var(--bdr);margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Next graft prep</div>
+          ${h.slide_prepared?`<div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px">🟩</span>
+            <span style="font-size:12px;font-weight:600;color:#065f46">Slide in — ${h.slide_prepared}</span>
+            <button class="btn bo" style="font-size:11px;margin-left:auto" onclick="const hh=hById('${hid}');hh.slide_prepared=null;stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">Undo</button>
+          </div>`:`<button class="btn bp bs" onclick="const hh=hById('${hid}');hh.slide_prepared='${todayStr}';stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in done</button>`}
+        </div>`;
+      }
+      return '';
+    })()}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn bo bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('hive','${hid}')">Hive details</button>
       ${isF&&batches.length===0?`<button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();go('graft')">+ New graft</button>`:''}
