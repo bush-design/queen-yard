@@ -611,7 +611,7 @@ function rFinisherStatus(){
       let stg,stgBg,stgTxt;
       if(f.out!=null&&f.out>0){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
       else if((f.capped!=null&&f.capped>0)||estCap<=tdStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-      else if(tdStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+      else if(tdStr>=larvalDate||(f.cells_received>0)){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
       else if(tdStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
       else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
       addStatus(f.hive_id,{stg,stgBg,stgTxt,gc});
@@ -712,7 +712,7 @@ function rYardMap(){
       const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
       if(fr?.out!=null) stageLabel='Out';
       else if((fr?.capped!=null)||gCapDate(g)<=todayStr) stageLabel='Capped';
-      else if(todayStr>=larvalDate) stageLabel='Larval';
+      else if(todayStr>=larvalDate||(fr?.cells_received>0)) stageLabel='Larval';
       else if(todayStr>=slideOutDate) stageLabel='Slide↑';
       else if(todayStr===g.date) stageLabel='Starting';
       else stageLabel='Slide↓';
@@ -781,7 +781,7 @@ function showHiveMapPopup(hid){
     let stg,stgBg,stgTxt;
     if(fr?.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
     else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-    else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+    else if(todayStr>=larvalDate||(fr?.cells_received>0)){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
     else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
     else if(todayStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
     else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
