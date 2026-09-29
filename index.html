@@ -1663,13 +1663,26 @@ function renderRecPanel(id){
               ?`<input type="number" min="0" style="${inpSt}color:var(--g)" value="${g.grafted||''}" placeholder="--" onchange="updGraftFlag('${gid}','grafted',+this.value||0);renderRecPanel('${gid}')">`
               :`<span>${grVal||'--'}</span>`;
           const multiF=(g.finishers||[]).length>1;
+          const singleF=(g.finishers||[]).length===1;
+          const sf=(g.finishers||[])[0];
+          const sfIdx=0;
+          const sfId=g.id;
+          const inInput=singleF
+            ?`<input type="number" min="0" style="${inpSt}color:${tIn>0?'#1e40af':'inherit'}" value="${sf?.cells_received||''}" placeholder="--" onchange="updFin('${sfId}',${sfIdx},'cells_received',+this.value||0);renderRecPanel('${sfId}')">`
+            :`${tIn||'--'}`;
+          const capInput=singleF
+            ?`<input type="number" min="0" style="${inpSt}color:${tCapped>0?'#92400e':'inherit'}" value="${sf?.capped||''}" placeholder="--" onchange="updFin('${sfId}',${sfIdx},'capped',+this.value||0);renderRecPanel('${sfId}')">`
+            :`${tCapped||'--'}`;
+          const outInput=singleF
+            ?`<input type="number" min="0" style="${inpSt}color:${tOut>0?'var(--g)':'inherit'}" value="${sf?.out||''}" placeholder="--" onchange="updFin('${sfId}',${sfIdx},'out',+this.value||0);renderRecPanel('${sfId}')">`
+            :`${tOut||'--'}`;
           return`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px">
             <div class="stat"><div class="n" style="color:var(--g)">${grInput}</div><div class="l">Grafted</div></div>
-            <div class="stat" style="${tIn>0?'background:#dbeafe;border-radius:var(--rs)':''}"><div class="n" style="${tIn>0?'color:#1e40af':''}">${tIn||'--'}</div><div class="l">Started</div></div>
-            <div class="stat" style="${tCapped>0?'background:#fef3c7;border-radius:var(--rs)':''}"><div class="n" style="${tCapped>0?'color:#92400e':''}">${tCapped||'--'}</div><div class="l">Capped</div></div>
-            <div class="stat" style="${tOut>0?'background:var(--gl);border-radius:var(--rs)':''}"><div class="n" style="${tOut>0?'color:var(--g)':''}">${tOut||'--'}</div><div class="l">Out</div></div>
+            <div class="stat" style="${tIn>0?'background:#dbeafe;border-radius:var(--rs)':''}"><div class="n" style="${tIn>0?'color:#1e40af':''}">${inInput}</div><div class="l">Started</div></div>
+            <div class="stat" style="${tCapped>0?'background:#fef3c7;border-radius:var(--rs)':''}"><div class="n" style="${tCapped>0?'color:#92400e':''}">${capInput}</div><div class="l">Capped</div></div>
+            <div class="stat" style="${tOut>0?'background:var(--gl);border-radius:var(--rs)':''}"><div class="n" style="${tOut>0?'color:var(--g)':''}">${outInput}</div><div class="l">Out</div></div>
           </div>
-          <div style="font-size:10px;color:var(--b3);text-align:center;margin-bottom:8px">${multiF?'Started / Capped / Out — edit per finisher below ↓':'Tap Grafted to edit · Started/Capped/Out edit below ↓'}</div>`;
+          <div style="font-size:10px;color:var(--b3);text-align:center;margin-bottom:8px">${multiF?'Started / Capped / Out — edit per finisher below ↓':'Tap a number to edit'}</div>`;
         }
       })()}
       ${gp!==null?`<div class="lbl">Out / grafted</div>${pctBar(gp)}`:''}
