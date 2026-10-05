@@ -1118,7 +1118,7 @@ function rGraftCard(g){
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        ${!done&&cellsDue>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:''}
+        ${tOut>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${tOut}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:!done&&cellsDue>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells due</div>`:''}
         ${gp!==null?`<span class="chip ${gp>=70?'cok':gp>=40?'cwarn':'cbad'}" style="margin-top:2px">${gp}%</span>`:''}
       </div>
     </div>
