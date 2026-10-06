@@ -816,9 +816,13 @@ function showHiveMapPopup(hid){
           ${fr?.capped!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800">${fr.capped}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Capped</div></div>`:''}
           ${fr?.out!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800;color:var(--g)">${fr.out}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Out</div></div>`:''}
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           ${canSlideIn?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_in_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in</button>`:''}
           ${canSlideOut?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_out_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔳 Slide out</button>`:''}
+          <select style="padding:6px 8px;font-size:12px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht);max-width:120px" onchange="(()=>{const newHid=this.value;if(!newHid)return;const g=gById('${g.id}');const fi=g.finishers.findIndex(f=>f.hive_id==='${hid}');if(fi<0){toast('Finisher not found');return;}g.finishers[fi].hive_id=newHid;stamp(g);save();document.getElementById('hive-map-popup').remove();render();toast('Moved to '+hiveLabel(hById(newHid)));})()">
+            <option value="">Move to…</option>
+            ${numSort(hByType('finisher')).filter(fh=>fh.id!==hid&&!fh.retired).map(fh=>`<option value="${fh.id}">${fh.name}</option>`).join('')}
+          </select>
           <button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('rec','${g.id}')">Record / update →</button>
         </div>
       </div>
