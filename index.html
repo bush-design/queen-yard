@@ -1697,23 +1697,36 @@ function renderRecPanel(id){
       </div>
       <div style="padding:0 18px 18px">
         ${(g.finishers||[]).length?finRows:'<p class="tsm">No finishers assigned yet.</p>'}
-        ${(g.finishers||[]).length>1?`<div class="dvd"></div>
-        <div style="font-size:12px;font-weight:700;color:var(--b2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Move cells between finishers</div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <select id="mfc-from-${g.id}" style="flex:1;min-width:80px;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-            <option value="">From…</option>
-            ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return`<option value="${f.hive_id}">${H?H.name:'?'} (${f.cells_received||0})</option>`;}).join('')}
-          </select>
-          <span style="color:var(--b3);font-size:16px">→</span>
-          <select id="mfc-to-${g.id}" style="flex:1;min-width:80px;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-            <option value="">To…</option>
-            ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return`<option value="${f.hive_id}">${H?H.name:'?'} (${f.cells_received||0})</option>`;}).join('')}
-          </select>
-          <input id="mfc-n-${g.id}" type="number" min="1" placeholder="n" style="width:60px;padding:7px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-          <button class="btn bp bs" onclick="moveFinCells('${g.id}')">Move</button>
-        </div>`:''}
       </div>
     </div>
+    ${(g.finishers||[]).length>1?`<div class="card" style="border:1.5px solid var(--bdr)">
+      <div class="chd">Move cells between finishers</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <select id="mfc-from-${g.id}" style="flex:1;min-width:80px;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+          <option value="">From…</option>
+          ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return`<option value="${f.hive_id}">${H?H.name:'?'} (${f.cells_received||0})</option>`;}).join('')}
+        </select>
+        <span style="color:var(--b3);font-size:18px">→</span>
+        <select id="mfc-to-${g.id}" style="flex:1;min-width:80px;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+          <option value="">To…</option>
+          ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return`<option value="${f.hive_id}">${H?H.name:'?'} (${f.cells_received||0})</option>`;}).join('')}
+        </select>
+        <input id="mfc-n-${g.id}" type="number" min="1" placeholder="n" style="width:60px;padding:7px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+        <button class="btn bp bs" onclick="moveFinCells('${g.id}')">Move</button>
+      </div>
+    </div>`:''}
+    ${(g.finishers||[]).length?`<div class="card" style="border:1.5px solid #fecaca;background:#fff5f5">
+      <div class="chd" style="color:#b91c1c">Retire a finisher hive</div>
+      <p class="tsm" style="margin-bottom:10px">Mark a hive as no longer active — it will be greyed out on the map and excluded from future grafts.</p>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <select id="ret-hive-${g.id}" style="flex:1;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid #fca5a5;border-radius:var(--rs);background:var(--wht)">
+          <option value="">Select hive…</option>
+          ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return H&&!H.retired?`<option value="${f.hive_id}">${H.name}</option>`:'';}).join('')}
+        </select>
+        <button class="btn bd bs" onclick="(()=>{const hid=document.getElementById('ret-hive-${g.id}').value;if(!hid)return;const hh=hById(hid);if(!hh)return;if(!confirm('Retire '+hh.name+'?'))return;hh.retired=true;hh.retired_date='${today()}';stamp(hh);save();renderRecPanel('${g.id}');toast(hh.name+' retired');})()">Retire</button>
+      </div>
+    </div>`:''}
+
     <div class="card">
       <div class="chd">Yard Allocation <span class="txs ml">where did the cells go?</span></div>
       ${outFinishers.length?`
