@@ -1571,6 +1571,13 @@ function renderRecPanel(id){
         <div class="field" style="flex:1"><label style="font-size:9px">Capped date</label><input type="date" style="font-size:12px;padding:6px 8px" value="${estCap}" onchange="updFin('${id}',${i},'capped_date',this.value)"></div>
         <div class="field" style="flex:1"><label style="font-size:9px">Out date</label><input type="date" style="font-size:12px;padding:6px 8px" value="${estOut}" onchange="updFin('${id}',${i},'out_date',this.value)"></div>
       </div>`:''}
+      <div style="display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr)">
+        <span style="font-size:11px;color:var(--b3);white-space:nowrap">Move to hive:</span>
+        <select style="flex:1;padding:6px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)" onchange="(()=>{const newHid=this.value;if(!newHid)return;const g=gById('${id}');if(!g)return;g.finishers[${i}].hive_id=newHid;stamp(g);save();renderRecPanel('${id}');toast('Moved to '+hiveLabel(hById(newHid)));})()">
+          <option value="">Select…</option>
+          ${numSort(hByType('finisher')).filter(fh=>fh.id!==f.hive_id&&!fh.retired).map(fh=>`<option value="${fh.id}">${fh.name}</option>`).join('')}
+        </select>
+      </div>
     </div>`;
   }).join('');
 
