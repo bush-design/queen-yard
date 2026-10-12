@@ -788,7 +788,7 @@ function showHiveMapPopup(hid){
     const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
     const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
     const outDate=gOutDate(g);
-    const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.cells_received||0)-(f.out||0)),0);
+    const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),0);
     const tGr=gGrafted(g),tOut2=gOut(g);
     const wknd=isWknd(outDate);
     let stg,stgBg,stgTxt;
@@ -1100,7 +1100,7 @@ function gFinisherLabel(g){
 function rGraftCard(g){
   const B=hById(g.breeder_id);
   const outDate=gOutDate(g);const tGr=gGrafted(g),tOut=gOut(g);const gp=pct(tOut,tGr);
-  const done=gDone(g);const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.cells_received||0)-(f.out||0)),0);
+  const done=gDone(g);const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),0);
   const wd=dayN(outDate);const wknd=isWknd(outDate);
   const isA=g.protocol==='autumn';const d=dayjs(g.date);
   const isCloakeG=g.method==='cloake';
