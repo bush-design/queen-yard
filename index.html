@@ -1272,7 +1272,7 @@ function rGraftCard(g){
 // GRAFT FORM
 function initDraft(existing){
   if(existing){draft={...existing,starters:(existing.starters||[]).map(s=>({...s}))};}
-  else{draft={id:null,date:today(),protocol:'standard',breeder_id:hByType('breeder')[0]?.id||'',starters:[],notes:'',grafted:0,cloake_hive_id:'',sky:'',temp:'',precip:false,precipTypes:[],graft_time:new Date().toTimeString().slice(0,5)};}
+  else{const defBreeder=hByType('breeder').filter(h=>!h.retired)[0]||hByType('finisher').filter(h=>!h.retired)[0];draft={id:null,date:today(),protocol:'standard',breeder_id:defBreeder?.id||'',starters:[],notes:'',grafted:0,cloake_hive_id:'',sky:'',temp:'',precip:false,precipTypes:[],graft_time:new Date().toTimeString().slice(0,5)};}
 }
 function startEdit(id){initDraft(gById(id));go('graft');}
 
@@ -1280,9 +1280,11 @@ function rGraft(){
   if(!draft)initDraft(null);
   const f=draft;
   const breeders=hByType('breeder').filter(h=>!h.retired);
+  const finishersAsBreeder=numSort(hByType('finisher').filter(h=>!h.retired));
+  const allBreederOptions=[...breeders,...finishersAsBreeder];
   const starters=numSort(hByType('starter').filter(h=>!h.retired));
   const isA=f.protocol==='autumn';
-  if(!breeders.length)return`<div class="card"><div class="chd">Set up hives first</div><p class="tsm">Add at least one breeder.</p><button class="btn bp mt12" onclick="go('hives')">Set up hives</button></div>`;
+  if(!allBreederOptions.length)return`<div class="card"><div class="chd">Set up hives first</div><p class="tsm">Add at least one breeder or finisher.</p><button class="btn bp mt12" onclick="go('hives')">Set up hives</button></div>`;
   const d=dayjs(f.date);
   const outDate=isA?d.add(2,'day').format('YYYY-MM-DD'):d.add(10,'day').format('YYYY-MM-DD');
   const capDate=isA?null:d.add(5,'day').format('YYYY-MM-DD');
@@ -1317,7 +1319,8 @@ function rGraft(){
       <div class="field"><label>Breeder</label>
         <select onchange="draft.breeder_id=this.value">
           <option value="">Select...</option>
-          ${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}
+          ${breeders.length?`<optgroup label="Breeders">${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}</optgroup>`:''}
+          ${finishersAsBreeder.length?`<optgroup label="Finishers (used as breeder)">${finishersAsBreeder.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}</optgroup>`:''}
         </select></div>
     </div>
     ${cloake?`<div class="mt12">
