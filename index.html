@@ -819,7 +819,7 @@ function showHiveMapPopup(hid){
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           ${canSlideIn?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_in_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in</button>`:''}
           ${canSlideOut?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_out_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔳 Slide out</button>`:''}
-          <select style="padding:6px 8px;font-size:12px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht);max-width:120px" onchange="(()=>{const newHid=this.value;if(!newHid)return;const g=gById('${g.id}');const fi=g.finishers.findIndex(f=>f.hive_id==='${hid}');if(fi<0){toast('Finisher not found');return;}g.finishers[fi].hive_id=newHid;stamp(g);save();document.getElementById('hive-map-popup').remove();render();toast('Moved to '+hiveLabel(hById(newHid)));})()">
+          <select style="padding:6px 8px;font-size:12px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht);max-width:120px" onchange="moveGraftToHive('${g.id}','${hid}',this.value)">
             <option value="">Move to…</option>
             ${numSort(hByType('finisher')).filter(fh=>fh.id!==hid&&!fh.retired).map(fh=>`<option value="${fh.id}">${fh.name}</option>`).join('')}
           </select>
@@ -1805,6 +1805,31 @@ function saveExtra(gid){
 
 function updGraftFlag(gid,key,val){const g=gById(gid);if(!g)return;g[key]=val;stamp(g);save();}
 function updFin(gid,i,k,v){const g=gById(gid);if(!g)return;g.finishers[i][k]=v;stamp(g);save();}
+function moveGraftToHive(gid,fromHid,toHid){
+  if(!toHid||!fromHid||fromHid===toHid)return;
+  const gr=gById(gid);if(!gr)return;
+  // Standard graft: update finisher record's hive_id
+  const fi=(gr.finishers||[]).findIndex(f=>f.hive_id===fromHid);
+  if(fi>=0){
+    gr.finishers[fi].hive_id=toHid;
+    stamp(gr);save();
+    document.getElementById('hive-map-popup')?.remove();
+    render();
+    toast('Moved to '+hiveLabel(hById(toHid)));
+    return;
+  }
+  // Cloake graft: update cloake_hive_id and first finisher
+  if(gr.method==='cloake'){
+    gr.cloake_hive_id=toHid;
+    if(gr.finishers&&gr.finishers[0])gr.finishers[0].hive_id=toHid;
+    stamp(gr);save();
+    document.getElementById('hive-map-popup')?.remove();
+    render();
+    toast('Moved to '+hiveLabel(hById(toHid)));
+    return;
+  }
+  toast('Could not find finisher record for this hive');
+}
 function moveFinCells(gid){
   const g=gById(gid);if(!g)return;
   const fromId=document.getElementById('mfc-from-'+gid)?.value;
