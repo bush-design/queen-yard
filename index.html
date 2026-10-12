@@ -1806,19 +1806,9 @@ function saveExtra(gid){
 function updGraftFlag(gid,key,val){const g=gById(gid);if(!g)return;g[key]=val;stamp(g);save();}
 function updFin(gid,i,k,v){const g=gById(gid);if(!g)return;g.finishers[i][k]=v;stamp(g);save();}
 function moveGraftToHive(gid,fromHid,toHid){
-  if(!toHid||!fromHid||fromHid===toHid)return;
+  if(!toHid)return;
   const gr=gById(gid);if(!gr)return;
-  // Standard graft: update finisher record's hive_id
-  const fi=(gr.finishers||[]).findIndex(f=>f.hive_id===fromHid);
-  if(fi>=0){
-    gr.finishers[fi].hive_id=toHid;
-    stamp(gr);save();
-    document.getElementById('hive-map-popup')?.remove();
-    render();
-    toast('Moved to '+hiveLabel(hById(toHid)));
-    return;
-  }
-  // Cloake graft: update cloake_hive_id and first finisher
+  // Cloake graft: update cloake_hive_id and first finisher hive_id
   if(gr.method==='cloake'){
     gr.cloake_hive_id=toHid;
     if(gr.finishers&&gr.finishers[0])gr.finishers[0].hive_id=toHid;
@@ -1828,7 +1818,18 @@ function moveGraftToHive(gid,fromHid,toHid){
     toast('Moved to '+hiveLabel(hById(toHid)));
     return;
   }
-  toast('Could not find finisher record for this hive');
+  // Standard graft: find finisher by fromHid, fall back to first finisher if only one
+  let fi=(gr.finishers||[]).findIndex(f=>f.hive_id===fromHid);
+  if(fi<0&&(gr.finishers||[]).length===1)fi=0;
+  if(fi>=0){
+    gr.finishers[fi].hive_id=toHid;
+    stamp(gr);save();
+    document.getElementById('hive-map-popup')?.remove();
+    render();
+    toast('Moved to '+hiveLabel(hById(toHid)));
+    return;
+  }
+  toast('Could not find finisher record — try Record / update instead');
 }
 function moveFinCells(gid){
   const g=gById(gid);if(!g)return;
