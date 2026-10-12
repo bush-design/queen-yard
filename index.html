@@ -259,12 +259,12 @@ textarea{resize:vertical;min-height:56px;}
 <div id="toast"></div>
 <script>
 const LOG_TYPES=[
-  {v:'inspection',l:'Inspection'},{v:'e-cell',l:'E-cell check'},
-  {v:'ss-cell',l:'SS cell check'},{v:'sugar-syrup',l:'Sugar syrup'},
-  {v:'add-brood',l:'Add brood'},{v:'brood-up',l:'Brood up'},
-  {v:'swarm-check',l:'Swarm check'},{v:'super-on',l:'Super on'},
-  {v:'rq',l:'RQ'},{v:'queen-event',l:'Queen event'},
+  {v:'sugar-syrup',l:'Sugar syrup'},
+  {v:'super-on',l:'Super on'},
+  {v:'brood-up',l:'Brood up'},
+  {v:'swarm-check',l:'Swarm check'},
 ];
+const LOG_ALERT_TYPES=['brood-up','swarm-check']; // must happen within 9 days
 
 // STATE
 let DB={hives:[],grafts:[],yard:[],method:'starter_finisher',supaUrl:'',supaKey:''};
@@ -454,6 +454,14 @@ function sortedFinishersByAvail(excludeGraftId){
 function pct(n,d){return d?Math.round(n/d*100):null;}
 function pctBar(p){if(p===null)return'';const c=p>=70?'pb-good':p>=40?'pb-ok':'pb-low';return`<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div class="pb-wrap" style="flex:1"><div class="pb ${c}" style="width:${p}%"></div></div><span style="font-size:11px;font-weight:700;color:var(--b2)">${p}%</span></div>`;}
 function gGrafted(g){const s=(g.starters||[]).reduce((a,x)=>a+(x.cells_in||0),0);return s||(g.grafted||0);}
+// Returns days since last log entry of given type(s) for hive h, or null if never
+function daysSinceLog(h,types){
+  if(!h||!(h.log||[]).length)return null;
+  const entries=(h.log||[]).filter(e=>(e.types||[e.type].filter(Boolean)).some(t=>types.includes(t)));
+  if(!entries.length)return null;
+  const latest=entries.map(e=>e.date).sort().pop();
+  return dayjs(today()).diff(dayjs(latest),'day');
+}
 function gOut(g){return(g.finishers||[]).reduce((a,f)=>a+(f.out||0),0);}
 function gMated(g){return(g.finishers||[]).reduce((a,f)=>a+(f.mated||0),0);}
 function gOutDate(g){return g.protocol==='autumn'?dayjs(g.date).add(2,'day').format('YYYY-MM-DD'):dayjs(g.date).add(10,'day').format('YYYY-MM-DD');}
@@ -1106,6 +1114,13 @@ function rGraftCard(g){
     else{stg='Larval';stgC='#1e40af';}
     return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div style="font-size:9px;font-weight:700;color:${stgC}">${stg}</div><div class="txs">${f.cells_received||0} in</div><div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${f.out??'--'}</div>${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${fp}%</div>`:''}</div>`;}).join('');
   const gc=graftColour(g);
+  // Alert if any active finisher is overdue for brood-up or swarm-check
+  const logAlertCount=!done?(g.finishers||[]).filter(f=>{
+    const H=hById(f.hive_id);if(!H||(f.out||0)>0)return false;
+    const dBU=daysSinceLog(H,['brood-up']);
+    const dSC=daysSinceLog(H,['swarm-check']);
+    return(dBU===null||dBU>9)||(dSC===null||dSC>9);
+  }).length:0;
   return`<div class="gc" style="border-color:${gc.border}">
     <div class="gc-hd" style="background:${gc.bg}" onclick="this.nextElementSibling.classList.toggle('open')">
       <div style="flex:1">
@@ -1114,6 +1129,7 @@ function rGraftCard(g){
           <strong style="font-size:14px">${fmtF(g.date)}</strong>
           <span class="chip ${isA?'caut':'cstd'}">${isA?'Autumn':'Standard'}</span>
           <span class="chip cB" style="font-size:10px">${B?B.name:'?'}</span>
+          ${logAlertCount>0?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef2f2;border:1.5px solid #fca5a5;color:#b91c1c;font-weight:800">⚠ ${logAlertCount} hive${logAlertCount>1?'s':''} overdue</span>`:''}
         </div>
         <div style="margin-top:4px;display:flex;align-items:baseline;gap:4px">
           <span style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase;letter-spacing:.3px">Out</span>
@@ -1190,6 +1206,58 @@ function rGraftCard(g){
           ${g.yards.map(y=>{const F=hById(y.fid);return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px"><span class="chip cF" style="font-size:10px">${F?F.name:'?'}</span><strong>${y.cells||0}</strong><span style="color:var(--b3)">→</span><span>${y.yard||'(no yard set)'}</span></div>`;}).join('')}
         </div>
       </div>`:''}
+
+      ${(()=>{
+        // Per-finisher log status + collapsible log entries
+        const fins=(g.finishers||[]).filter(f=>!gDone(g)||(f.out||0)>0);
+        if(!fins.length)return'';
+        // Build status pills — days since brood up / swarm check
+        const pills=fins.map(f=>{
+          const H=hById(f.hive_id);if(!H)return'';
+          const dBU=daysSinceLog(H,['brood-up']);
+          const dSC=daysSinceLog(H,['swarm-check']);
+          const alertBU=dBU===null||dBU>9;
+          const alertSC=dSC===null||dSC>9;
+          const pillStyle=(alert)=>alert
+            ?'background:#fef2f2;border:1.5px solid #fca5a5;color:#b91c1c;font-weight:800'
+            :'background:var(--gl);border:1.5px solid var(--gm);color:var(--g);font-weight:700';
+          return`<div style="display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:var(--rs);background:var(--cr);border:1px solid var(--bdr)">
+            <span style="font-size:11px;font-weight:700;color:var(--g)">${H.name}</span>
+            <span style="font-size:10px;padding:2px 6px;border-radius:10px;${pillStyle(alertBU)}">🌿 ${dBU===null?'never':dBU+'d'}</span>
+            <span style="font-size:10px;padding:2px 6px;border-radius:10px;${pillStyle(alertSC)}">🐝 ${dSC===null?'never':dSC+'d'}</span>
+          </div>`;
+        }).join('');
+        // All log entries across all finisher hives, newest first
+        const allEntries=fins.flatMap(f=>{
+          const H=hById(f.hive_id);if(!H)return[];
+          return(H.log||[]).map(e=>({...e,hiveName:H.name}));
+        }).sort((a,b)=>b.date.localeCompare(a.date));
+        const entryRows=allEntries.map(e=>{
+          const types=(e.types||[e.type].filter(Boolean));
+          const labels=types.map(t=>{const lt=LOG_TYPES.find(x=>x.v===t);return lt?lt.l:t;});
+          return`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--bdr)">
+            <div style="min-width:60px;font-size:10px;font-weight:600;color:var(--b3);padding-top:2px">${fmt(e.date)}</div>
+            <div style="font-size:10px;font-weight:700;color:var(--g);min-width:36px">${e.hiveName}</div>
+            <div style="flex:1;display:flex;flex-wrap:wrap;gap:3px;align-items:center">
+              ${labels.map(l=>`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--gl);color:var(--g);font-weight:600">${l}</span>`).join('')}
+              ${e.note?`<span style="font-size:10px;color:var(--b3);font-style:italic">${e.note}</span>`:''}
+            </div>
+          </div>`;
+        }).join('')||'<p class="txs" style="color:var(--b3);padding:6px 0">No log entries yet — add from Hive Manager.</p>';
+        return`<div class="mt8" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
+          <div style="padding:8px 12px;background:var(--cr)">
+            <div style="font-size:10px;font-weight:600;color:var(--b3);text-transform:uppercase;margin-bottom:6px">🌿 Brood up · 🐝 Swarm check — days since last</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">${pills}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--gl);cursor:pointer"
+            onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=b.style.display==='none'?'›':'⌄'">
+            <span style="font-size:12px;font-weight:700">Log entries</span>
+            <span style="font-size:11px;color:var(--b3)">${allEntries.length} total</span>
+            <span class="chev ml" style="color:var(--b3)">›</span>
+          </div>
+          <div style="display:none;padding:8px 12px">${entryRows}</div>
+        </div>`;
+      })()}
 
       <div class="dvd"></div>
       <div class="brow">
