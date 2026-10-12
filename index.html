@@ -2237,12 +2237,12 @@ function rStats(){
       // Started check: show from day 1 after graft until cells_received is entered
       const startedCheckDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
       if(tdStr2>=startedCheckDate&&!(f.cells_received>0)){
-        finHiveMap[hid].checks.push({type:'started',label:'Started?',color:'#1e40af',bg:'#dbeafe',bdr:'#93c5fd'});
+        finHiveMap[hid].checks.push({type:'started',label:'Started check',color:'#1e40af',bg:'#dbeafe',bdr:'#93c5fd'});
       }
       // Cappings check: show from capping date until capped is entered
       const capDate=f.capped_date||gCapDate(g);
       if(tdStr2>=capDate&&!(f.capped>0)&&g.protocol!=='autumn'){
-        finHiveMap[hid].checks.push({type:'capped',label:'Cappings?',color:'#92400e',bg:'#fef3c7',bdr:'#fcd34d'});
+        finHiveMap[hid].checks.push({type:'capped',label:'Capping check',color:'#92400e',bg:'#fef3c7',bdr:'#fcd34d'});
       }
     });
   });
@@ -2277,7 +2277,7 @@ function rStats(){
         </div>
       </div>
       ${r.checks.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;padding-left:16px">
-        ${r.checks.map(c=>`<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;background:${c.bg};border:1.5px solid ${c.bdr};color:${c.color}">⚡ ${c.label}</span>`).join('')}
+        ${r.checks.map(c=>`<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;background:${c.bg};border:1.5px solid ${c.bdr};color:${c.color}">${c.label}</span>`).join('')}
       </div>`:''}
     </div>`;
   }).join(''):'<p class="tsm" style="color:var(--b3)">No active finishers.</p>';
