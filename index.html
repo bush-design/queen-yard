@@ -264,7 +264,7 @@ const LOG_TYPES=[
   {v:'brood-up',l:'Brood up'},
   {v:'swarm-check',l:'Swarm check'},
 ];
-const LOG_ALERT_TYPES=['brood-up','swarm-check']; // must happen within 9 days
+const LOG_ALERT_TYPES=['brood-up','swarm-check']; // must happen within 7 days
 
 // STATE
 let DB={hives:[],grafts:[],yard:[],method:'starter_finisher',supaUrl:'',supaKey:''};
@@ -1119,7 +1119,7 @@ function rGraftCard(g){
     const H=hById(f.hive_id);if(!H||(f.out||0)>0)return false;
     const dBU=daysSinceLog(H,['brood-up']);
     const dSC=daysSinceLog(H,['swarm-check']);
-    return(dBU===null||dBU>9)||(dSC===null||dSC>9);
+    return(dBU===null||dBU>=7)||(dSC===null||dSC>=7);
   }).length:0;
   return`<div class="gc" style="border-color:${gc.border}">
     <div class="gc-hd" style="background:${gc.bg}" onclick="this.nextElementSibling.classList.toggle('open')">
@@ -1216,8 +1216,8 @@ function rGraftCard(g){
           const H=hById(f.hive_id);if(!H)return'';
           const dBU=daysSinceLog(H,['brood-up']);
           const dSC=daysSinceLog(H,['swarm-check']);
-          const alertBU=dBU===null||dBU>9;
-          const alertSC=dSC===null||dSC>9;
+          const alertBU=dBU===null||dBU>=7;
+          const alertSC=dSC===null||dSC>=7;
           const pillStyle=(alert)=>alert
             ?'background:#fef2f2;border:1.5px solid #fca5a5;color:#b91c1c;font-weight:800'
             :'background:var(--gl);border:1.5px solid var(--gm);color:var(--g);font-weight:700';
@@ -2222,7 +2222,49 @@ function rStats(){
   const ss={};G.forEach(g=>(g.starters||[]).forEach(s=>{if(!ss[s.hive_id])ss[s.hive_id]={in:0,accepted:0,hasAccepted:false};ss[s.hive_id].in+=(s.cells_in||0);if(s.cells_accepted!=null){ss[s.hive_id].accepted+=s.cells_accepted;ss[s.hive_id].hasAccepted=true;}}));
   const sRows=Object.entries(ss).map(([sid,d])=>{const S=hById(sid);const p=d.hasAccepted?pct(d.accepted,d.in):null;return`<tr><td style="padding:8px;font-size:12px;font-weight:600">${S?S.name:sid}</td><td style="padding:8px;text-align:center">${d.in}</td><td style="padding:8px;text-align:center">${d.hasAccepted?d.accepted:'--'}</td><td style="padding:8px;text-align:center">${p!==null?`<span class="chip ${p>=70?'cok':p>=40?'cwarn':'cbad'}">${p}%</span>`:'--'}</td></tr>`;}).join('');
   const convRow=(label,val,num,den)=>{const col=val===null?'var(--b3)':val>=70?'var(--g)':val>=40?'var(--amb)':'var(--red)';return`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bdr)"><div style="flex:1"><div style="font-size:12px;font-weight:600;color:var(--b2)">${label}</div><div style="font-size:11px;color:var(--b3)">${num} of ${den}</div></div><div style="text-align:right"><span style="font-size:22px;font-weight:800;color:${col}">${val!==null?val+'%':'--'}</span></div></div>`;};
-  return`<div class="card" style="border:2px solid var(--g)">
+  // YARD CHECKLIST — active finishers sorted by most overdue
+  const activeFinHiveIds=[...new Set(G.filter(g=>!gDone(g)).flatMap(g=>(g.finishers||[]).filter(f=>!(f.out>0)).map(f=>f.hive_id)))];
+  const yardRows2=activeFinHiveIds.map(hid=>{
+    const H=hById(hid);if(!H||H.retired)return null;
+    const dBU=daysSinceLog(H,['brood-up']);
+    const dSC=daysSinceLog(H,['swarm-check']);
+    const needsBU=dBU===null||dBU>=7;
+    const needsSC=dSC===null||dSC>=7;
+    const urgent=needsBU||needsSC;
+    return{H,dBU,dSC,needsBU,needsSC,urgent,score:(dBU??999)+(dSC??999)};
+  }).filter(Boolean).sort((a,b)=>b.score-a.score);
+  const urgentCount=yardRows2.filter(r=>r.urgent).length;
+  const yardHtml=yardRows2.length?yardRows2.map(r=>{
+    const buCol=r.needsBU?'#b91c1c':'var(--g)';
+    const scCol=r.needsSC?'#b91c1c':'var(--g)';
+    const buBg=r.needsBU?'#fef2f2':'var(--gl)';
+    const scBg=r.needsSC?'#fef2f2':'var(--gl)';
+    const buBdr=r.needsBU?'#fca5a5':'var(--gm)';
+    const scBdr=r.needsSC?'#fca5a5':'var(--gm)';
+    return`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bdr)">
+      <div style="width:8px;height:8px;border-radius:50%;background:${r.urgent?'#ef4444':'var(--g)'};flex-shrink:0"></div>
+      <div style="flex:1;font-size:13px;font-weight:700">${r.H.name}${r.H.notes?`<span style="font-size:10px;font-weight:400;color:var(--b3);margin-left:6px;font-style:italic">${r.H.notes}</span>`:''}</div>
+      <div style="display:flex;gap:6px">
+        <div style="text-align:center;padding:4px 8px;border-radius:var(--rs);background:${buBg};border:1.5px solid ${buBdr};min-width:52px">
+          <div style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase">Brood up</div>
+          <div style="font-size:13px;font-weight:800;color:${buCol}">${r.dBU===null?'never':r.dBU+'d ago'}</div>
+        </div>
+        <div style="text-align:center;padding:4px 8px;border-radius:var(--rs);background:${scBg};border:1.5px solid ${scBdr};min-width:52px">
+          <div style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase">Swarm chk</div>
+          <div style="font-size:13px;font-weight:800;color:${scCol}">${r.dSC===null?'never':r.dSC+'d ago'}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join(''):'<p class="tsm" style="color:var(--b3)">No active finishers.</p>';
+  return`<div class="card" style="border:2px solid ${urgentCount>0?'#ef4444':'var(--g)'}">
+    <div class="chd" style="color:${urgentCount>0?'#b91c1c':'var(--g)'}">
+      🐝 Yard Checklist
+      ${urgentCount>0?`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;font-weight:800;margin-left:8px">${urgentCount} need attention</span>`:'<span style="font-size:11px;color:var(--b3);font-weight:400;margin-left:8px">all up to date</span>'}
+    </div>
+    <div style="font-size:11px;color:var(--b3);margin-bottom:10px">Sorted by most overdue · alert after 7 days</div>
+    ${yardHtml}
+  </div>
+  <div class="card" style="border:2px solid var(--g)">
     <div class="lbl">Overall Breeding %</div>
     <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><span style="font-size:48px;font-weight:800;color:var(--g);line-height:1">${bp!==null?bp+'%':'--'}</span><span class="tsm">${tOut} out of ${tGr} grafted</span></div>
     ${pctBar(bp)}
