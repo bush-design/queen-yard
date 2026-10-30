@@ -79,8 +79,6 @@ textarea{resize:vertical;min-height:56px;}
 .stat .n{font-size:22px;font-weight:800;color:var(--g);line-height:1;}
 .stat .l{font-size:9px;color:var(--b3);font-weight:600;text-transform:uppercase;
   letter-spacing:.3px;margin-top:2px;}
-.stat input[type=number]::-webkit-inner-spin-button,.stat input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
-.stat input[type=number]{-moz-appearance:textfield;}
 
 /* GRAFT CARD — slim */
 .gc{border-radius:12px;overflow:hidden;margin-bottom:6px;
@@ -259,12 +257,12 @@ textarea{resize:vertical;min-height:56px;}
 <div id="toast"></div>
 <script>
 const LOG_TYPES=[
-  {v:'sugar-syrup',l:'Sugar syrup'},
-  {v:'super-on',l:'Super on'},
-  {v:'brood-up',l:'Brood up'},
-  {v:'swarm-check',l:'Swarm check'},
+  {v:'inspection',l:'Inspection'},{v:'e-cell',l:'E-cell check'},
+  {v:'ss-cell',l:'SS cell check'},{v:'sugar-syrup',l:'Sugar syrup'},
+  {v:'add-brood',l:'Add brood'},{v:'brood-up',l:'Brood up'},
+  {v:'swarm-check',l:'Swarm check'},{v:'super-on',l:'Super on'},
+  {v:'rq',l:'RQ'},{v:'queen-event',l:'Queen event'},
 ];
-const LOG_ALERT_TYPES=['brood-up','swarm-check']; // must happen within 7 days
 
 // STATE
 let DB={hives:[],grafts:[],yard:[],method:'starter_finisher',supaUrl:'',supaKey:''};
@@ -353,9 +351,8 @@ async function supaPush(){
   try{
     const ts=new Date().toISOString();
     const hr=DB.hives.map(h=>({id:h.id,type:h.type,name:h.name,queen_status:h.queen_status||'unknown',
-      strength:h.strength||3,notes:h.notes||'',log:h.log||[],slide_prepared:h.slide_prepared||null,retired:h.retired||false,updated_at:h.updated_at||ts}));
+      strength:h.strength||3,notes:h.notes||'',log:h.log||[],updated_at:h.updated_at||ts}));
     const gr=DB.grafts.map(g=>({id:g.id,date:g.date,protocol:g.protocol,breeder_id:g.breeder_id,
-      grafted:g.grafted||0,method:g.method||'starter_finisher',cloake_hive_id:g.cloake_hive_id||null,
       starters:g.starters||[],finishers:g.finishers||[],notes:g.notes||'',updated_at:g.updated_at||ts}));
     await Promise.all([
       fetch(supaBase('qct_hives'),{method:'POST',headers:{...supaHdr(),'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(hr)}),
@@ -454,14 +451,6 @@ function sortedFinishersByAvail(excludeGraftId){
 function pct(n,d){return d?Math.round(n/d*100):null;}
 function pctBar(p){if(p===null)return'';const c=p>=70?'pb-good':p>=40?'pb-ok':'pb-low';return`<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div class="pb-wrap" style="flex:1"><div class="pb ${c}" style="width:${p}%"></div></div><span style="font-size:11px;font-weight:700;color:var(--b2)">${p}%</span></div>`;}
 function gGrafted(g){const s=(g.starters||[]).reduce((a,x)=>a+(x.cells_in||0),0);return s||(g.grafted||0);}
-// Returns days since last log entry of given type(s) for hive h, or null if never
-function daysSinceLog(h,types){
-  if(!h||!(h.log||[]).length)return null;
-  const entries=(h.log||[]).filter(e=>(e.types||[e.type].filter(Boolean)).some(t=>types.includes(t)));
-  if(!entries.length)return null;
-  const latest=entries.map(e=>e.date).sort().pop();
-  return dayjs(today()).diff(dayjs(latest),'day');
-}
 function gOut(g){return(g.finishers||[]).reduce((a,f)=>a+(f.out||0),0);}
 function gMated(g){return(g.finishers||[]).reduce((a,f)=>a+(f.mated||0),0);}
 function gOutDate(g){return g.protocol==='autumn'?dayjs(g.date).add(2,'day').format('YYYY-MM-DD'):dayjs(g.date).add(10,'day').format('YYYY-MM-DD');}
@@ -585,15 +574,10 @@ function startScheduledGraft(id){
 function rFinisherStatus(){
   const allFinishers = numSort(hByType('finisher').filter(h=>!h.retired));
   if(!allFinishers.length) return '';
-  // Include grafts that are past their out date but still have finishers with unrecorded cells
-  const activeGrafts = DB.grafts.filter(g=>!g.scheduled&&(!gDone(g)||(g.finishers||[]).some(f=>!(f.out>0))));
+  const activeGrafts = DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
 
-  // Build a map of finisherId -> array of {stg, stgBg, stgTxt, gc}
+  // Build a map of finisherId -> {stg, stgBg, stgTxt, gc}
   const statusMap={};
-  function addStatus(fid,entry){
-    if(!statusMap[fid])statusMap[fid]=[];
-    statusMap[fid].push(entry);
-  }
   activeGrafts.forEach(g=>{
     const gc=graftColour(g);
     const isCloakeG=g.method==='cloake';
@@ -601,32 +585,24 @@ function rFinisherStatus(){
       const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;
       if(!fid)return;
       let stg,stgBg,stgTxt;
-      const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
-      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
-      const todayStr=today();
-      const fr=(g.finishers||[])[0];
-      if(fr?.out!=null){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
-      else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-      else if(todayStr>=larvalDate){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-      else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
-      else if(todayStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
-      else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
-      addStatus(fid,{stg,stgBg,stgTxt,gc});
+      if(!g.slide_in_done){stg='Slide in';stgBg='#dbeafe';stgTxt='#1e40af';}
+      else if(!g.slide_out_done){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+      else{
+        const fr=(g.finishers||[])[0];
+        if(fr?.out!=null){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
+        else if(fr?.capped!=null||gCapDate(g)<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+        else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+      }
+      statusMap[fid]={stg,stgBg,stgTxt,gc};
       return;
     }
     (g.finishers||[]).forEach(f=>{
       const estCap=f.capped_date||gCapDate(g);
-      const tdStr=today();
-      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
       let stg,stgBg,stgTxt;
-      const estOut=f.out_date||gOutDate(g);
       if(f.out!=null&&f.out>0){stg='Out ✓';stgBg='var(--gl)';stgTxt='var(--g)';}
-      else if(tdStr>=estOut){stg='Due out';stgBg='#fef2f2';stgTxt='#b91c1c';}
-      else if((f.capped!=null&&f.capped>0)||estCap<=tdStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-      else if(tdStr>=larvalDate||(f.cells_received>0)){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-      else if(tdStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
+      else if((f.capped!=null&&f.capped>0)||estCap<=today()){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
       else{stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-      addStatus(f.hive_id,{stg,stgBg,stgTxt,gc});
+      statusMap[f.hive_id]={stg,stgBg,stgTxt,gc};
     });
   });
 
@@ -634,252 +610,23 @@ function rFinisherStatus(){
     <div style="font-size:10px;font-weight:700;color:var(--b3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;padding:0 2px">Finisher Status</div>
     <div style="display:flex;flex-wrap:wrap;gap:4px">
       ${allFinishers.map(h=>{
-        const entries=statusMap[h.id];
-        if(!entries||!entries.length){
-          const isPrepared=!!h.slide_prepared;
-          return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
-              border-radius:20px;border:1.5px solid ${isPrepared?'#34d399':'var(--bdr)'};background:${isPrepared?'#d1fae5':'var(--wht)'}">
-            <span style="font-size:11px;font-weight:700;color:${isPrepared?'#065f46':'var(--b3)'}">${h.name}</span>
-            <span style="font-size:9px;font-weight:700;color:${isPrepared?'#065f46':'var(--b3)'}">
-              ${isPrepared?'Ready':'Free'}
-            </span>
-          </div>`;
-        }
-        if(entries.length===1){
-          const s=entries[0];
-          return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
-              border-radius:20px;border:1.5px solid ${s.gc.border};background:${s.gc.bg}">
-            <span style="font-size:11px;font-weight:700;color:${s.gc.text}">${h.name}</span>
-            <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
-              background:${s.stgBg};color:${s.stgTxt}">${s.stg}</span>
-          </div>`;
-        }
-        // Multiple batches — split pill with diagonal gradient border, stacked stage badges
-        const gradStops=entries.map((s,i)=>s.gc.bg+' '+(i/entries.length*100)+'% '+(((i+1)/entries.length)*100)+'%').join(', ');
-        const borderCol=entries[0].gc.border;
+        const s=statusMap[h.id];
+        const bg=s?s.gc.bg:'var(--wht)';
+        const border=s?s.gc.border:'var(--bdr)';
+        const nameCol=s?s.gc.text:'var(--b3)';
+        const stgBg=s?s.stgBg:'var(--cr)';
+        const stgTxt=s?s.stgTxt:'var(--b3)';
+        const stg=s?s.stg:'Free';
         return`<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;
-            border-radius:20px;border:1.5px solid ${borderCol};
-            background:linear-gradient(90deg,${gradStops})">
-          <span style="font-size:11px;font-weight:700;color:${entries[0].gc.text}">${h.name}</span>
-          ${entries.map(s=>`<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
-            background:${s.stgBg};color:${s.stgTxt}">${s.stg}</span>`).join('')}
+            border-radius:20px;border:1.5px solid ${border};background:${bg}">
+          <span style="font-size:11px;font-weight:700;color:${nameCol}">${h.name}</span>
+          <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;
+            background:${stgBg};color:${stgTxt}">${stg}</span>
         </div>`;
       }).join('')}
     </div>
   </div>`;
 }
-function rYardMap(){
-  const HIVE_POSITIONS=[
-    ['F10',248,42],['F11',292,42],
-    ['F8',148,52],['F9',192,52],['F13',258,142],['F12',302,142],
-    ['F5',68,150],['F18',112,150],['F15',210,204],['F14',254,204],
-    ['F1',98,212],['F4',142,212],
-    ['F16',210,258],['F17',254,258],['B1',316,258],
-    ['F7',30,270],['F6',74,270],
-    ['F3',112,342],['F2',156,342],['B3',214,342],['B2',258,342],['F19',316,342],['B4',360,342],
-  ];
-  const activeGrafts=DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
-  const todayStr=today();
-
-  const boxes=HIVE_POSITIONS.map(([name,x,y])=>{
-    const h=DB.hives.find(h=>h.name===name);
-    const isB=h?.type==='breeder';
-    const isS=h?.type==='starter';
-    const retired=h?.retired;
-
-    // Find all active batches for this hive
-    const batches=h?activeGrafts.filter(g=>{
-      if(g.method==='cloake'){
-        const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;
-        return fid===h.id;
-      }
-      return (g.finishers||[]).some(f=>f.hive_id===h.id);
-    }):[];
-
-    // Determine fill — use graft colour(s) if active, else type defaults
-    const isPrepared=!isS&&!retired&&batches.length===0&&h?.slide_prepared;
-    let fill,stroke,textFill;
-    if(isPrepared){
-      fill='#d1fae5'; stroke='#34d399'; textFill='#065f46';
-    } else if(batches.length===0||isB||isS||retired){
-      fill=retired?'#4a4a4a':isB?'#b08a10':isS?'#3b82f6':'#5a6e4a';
-      stroke=retired?'#666':isB?'#f0c84a':isS?'#93c5fd':'#8aaa7a';
-      textFill=retired?'#999':'#fff';
-    } else if(batches.length===1){
-      const gc=graftColour(batches[0]);
-      fill=gc.bg; stroke=gc.border; textFill=gc.text;
-    } else {
-      // Multiple — use first batch colour, add stripe later
-      const gc=graftColour(batches[0]);
-      fill=gc.bg; stroke=gc.border; textFill=gc.text;
-    }
-
-    // Stage label for active finisher
-    let stageLabel='';
-    if(isPrepared) stageLabel='Ready';
-    else if(batches.length&&!isB&&!isS&&!retired){
-      const g=batches[0];
-      const isCloake=g.method==='cloake';
-      const fr=isCloake?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===h.id);
-      const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
-      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
-      if(fr?.out!=null) stageLabel='Out';
-      else if((fr?.capped!=null)||gCapDate(g)<=todayStr) stageLabel='Capped';
-      else if(todayStr>=larvalDate||(fr?.cells_received>0)) stageLabel='Larval';
-      else if(todayStr>=slideOutDate) stageLabel='Slide↑';
-      else if(todayStr===g.date) stageLabel='Starting';
-      else stageLabel='Slide↓';
-    }
-
-    // Stripe pattern id for multi-batch
-    let defs='';
-    let rectFill=fill;
-    if(batches.length>1){
-      const pid='mp'+name.replace(/\W/g,'');
-      const cols=batches.map(b=>graftColour(b).bg);
-      const sw=Math.ceil(38/batches.length);
-      const stripes=cols.map((c,i)=>`<rect x="${i*sw}" y="0" width="${sw}" height="26" fill="${c}"/>`).join('');
-      defs=`<defs><pattern id="${pid}" x="${x}" y="${y}" width="38" height="26" patternUnits="userSpaceOnUse">${stripes}</pattern></defs>`;
-      rectFill=`url(#${pid})`;
-    }
-
-    const onclick=h?`showHiveMapPopup('${h.id}')`:'' ;
-    const cursor=h?'pointer':'default';
-
-    const slideReady=!!h?.slide_prepared;
-    return defs+`<g onclick="${onclick}" style="cursor:${cursor}">
-      <rect x="${x}" y="${y}" width="38" height="26" rx="3" fill="${rectFill}" stroke="${stroke}" stroke-width="1.8"/>
-      <text x="${x+19}" y="${y+(stageLabel?9:13)}" fill="${textFill}" font-size="9" font-weight="800" text-anchor="middle" dominant-baseline="middle">${name}</text>
-      ${stageLabel?`<text x="${x+19}" y="${y+20}" fill="${textFill}" font-size="7" font-weight="700" text-anchor="middle" dominant-baseline="middle" opacity="0.85">${stageLabel}</text>`:''}
-      ${slideReady?`<circle cx="${x+33}" cy="${y+5}" r="4" fill="#34d399" stroke="#fff" stroke-width="1.2"/>`:''}
-    </g>`;
-  }).join('');
-
-  return`<div class="card" style="padding:10px 10px 6px">
-    <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Yard Map</div>
-    <svg viewBox="0 0 420 385" style="width:100%;border-radius:6px;overflow:hidden" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width="420" height="385" fill="#3d4f2e" rx="6"/>
-      <rect x="8" y="8" width="404" height="369" fill="none" stroke="#4a5e38" stroke-width="1" rx="5" stroke-dasharray="3,4"/>
-      <text x="408" y="380" fill="#6a8a55" font-size="9" text-anchor="end" opacity="0.7">📷</text>
-      ${boxes}
-    </svg>
-  </div>`;
-}
-
-function showHiveMapPopup(hid){
-  const h=hById(hid);if(!h)return;
-  const isB=h.type==='breeder';
-  const isF=h.type==='finisher';
-  const todayStr=today();
-  const activeGrafts=DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
-
-  // Find active batches for this hive
-  const batches=activeGrafts.filter(g=>{
-    if(g.method==='cloake'){const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;return fid===hid;}
-    return (g.finishers||[]).some(f=>f.hive_id===hid);
-  });
-
-  // Build batch info rows — styled like home screen graft cards
-  const batchRows=batches.map(g=>{
-    const gc=graftColour(g);
-    const isCloake=g.method==='cloake';
-    const B=hById(g.breeder_id);
-    const fr=isCloake?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===hid);
-    const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
-    const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
-    const outDate=gOutDate(g);
-    const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),0);
-    const tGr=gGrafted(g),tOut2=gOut(g);
-    const wknd=isWknd(outDate);
-    let stg,stgBg,stgTxt;
-    if(fr?.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
-    else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-    else if(todayStr>=larvalDate||(fr?.cells_received>0)){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-    else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
-    else if(todayStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
-    else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
-
-    const canSlideIn=isCloake&&!g.slide_in_done&&fr?.out==null;
-    const canSlideOut=isCloake&&g.slide_in_done&&!g.slide_out_done&&fr?.out==null;
-
-    return`<div style="border:1.5px solid ${gc.border};border-radius:10px;overflow:hidden;margin-bottom:10px">
-      <div style="background:${gc.bg};padding:10px 12px">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-          <span class="chip" style="background:${gc.border};color:${gc.text};font-weight:800">${gFinisherLabel(g)}</span>
-          <strong style="font-size:13px">${fmtF(g.date)}</strong>
-          <span class="chip ${isCloake?'':'cstd'}" style="${isCloake?'background:#ede9fe;color:#6b21a8':''}">
-            ${isCloake?'Cloake':'Standard'}
-          </span>
-          ${B?`<span class="chip cB" style="font-size:10px">${B.name}</span>`:''}
-          <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:${stgBg};color:${stgTxt};margin-left:auto">${stg}</span>
-        </div>
-        <div style="display:flex;align-items:baseline;gap:4px">
-          <span style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase">Out</span>
-          <span style="font-size:15px;font-weight:800;color:${wknd?'var(--red)':'var(--g)'}">${relDay(outDate)||dayN(outDate)} ${fmt(outDate)}</span>
-          ${wknd?'<span style="font-size:9px;font-weight:700;color:var(--red)">Wknd</span>':''}
-          ${cellsDue>0?`<span style="margin-left:auto;font-size:18px;font-weight:800;color:var(--g)">${cellsDue} <span style="font-size:9px;color:var(--b3);font-weight:600">cells</span></span>`:''}
-        </div>
-      </div>
-      <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--wht)">
-        <div style="display:flex;gap:12px;flex:1">
-          <div style="text-align:center"><div style="font-size:16px;font-weight:800">${tGr||'--'}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Grafted</div></div>
-          ${fr?.cells_received!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800">${fr.cells_received}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">In finisher</div></div>`:''}
-          ${fr?.capped!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800">${fr.capped}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Capped</div></div>`:''}
-          ${fr?.out!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800;color:var(--g)">${fr.out}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Out</div></div>`:''}
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          ${canSlideIn?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_in_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in</button>`:''}
-          ${canSlideOut?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_out_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔳 Slide out</button>`:''}
-          <select style="padding:6px 8px;font-size:12px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht);max-width:120px" onchange="moveGraftToHive('${g.id}','${hid}',this.value)">
-            <option value="">Move to…</option>
-            ${numSort(hByType('finisher')).filter(fh=>fh.id!==hid&&!fh.retired).map(fh=>`<option value="${fh.id}">${fh.name}</option>`).join('')}
-          </select>
-          <button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('rec','${g.id}')">Record / update →</button>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-
-  const cc=isB?'cB':h.type==='starter'?'cS':'cF';
-  const m=document.createElement('div');
-  m.id='hive-map-popup';
-  m.style.cssText='position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
-  m.innerHTML=`<div style="background:var(--wht);border-radius:16px 16px 0 0;padding:20px 16px 36px;width:100%;max-width:680px;max-height:80vh;overflow-y:auto">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-      <span class="chip ${cc}">${h.name}</span>
-      <span style="font-size:15px;font-weight:700">${h.name}</span>
-      ${h.queen_status&&h.queen_status!=='unknown'?`<span style="font-size:11px;color:var(--b3)">${h.queen_status}</span>`:''}
-      <button onclick="document.getElementById('hive-map-popup').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--b3)">×</button>
-    </div>
-    ${batches.length?`<div style="margin-bottom:12px">${batchRows}</div>`:'<p class="tsm" style="margin-bottom:12px;color:var(--b3)">No active batches</p>'}
-    ${(()=>{
-      if(h.retired) return '';
-      // Show cloake prep if: no batches (free hive), OR any batch is Capped/Out, OR slide already set
-      const anyCapped=batches.some(g=>{
-        const fr=(g.finishers||[]).find(f=>f.hive_id===hid)||(g.finishers||[])[0];
-        return (fr?.capped!=null)||gCapDate(g)<=todayStr||fr?.out!=null;
-      });
-      if(!batches.length||anyCapped||h.slide_prepared){
-        return`<div style="padding:10px 0 14px;border-bottom:1px solid var(--bdr);margin-bottom:12px">
-          <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Next graft prep</div>
-          ${h.slide_prepared?`<div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px">🟩</span>
-            <span style="font-size:12px;font-weight:600;color:#065f46">Slide in — ${h.slide_prepared}</span>
-            <button class="btn bo" style="font-size:11px;margin-left:auto" onclick="const hh=hById('${hid}');hh.slide_prepared=null;stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">Undo</button>
-          </div>`:`<button class="btn bp bs" onclick="const hh=hById('${hid}');hh.slide_prepared='${todayStr}';stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in done</button>`}
-        </div>`;
-      }
-      return '';
-    })()}
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn bo bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('hive','${hid}')">Hive details</button>
-      ${isF&&batches.length===0?`<button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();go('graft')">+ New graft</button>`:''}
-    </div>
-  </div>`;
-  m.addEventListener('click',e=>{if(e.target===m)m.remove();});
-  document.body.appendChild(m);
-}
-
 function rDash(){
   const G=DB.grafts.filter(g=>!g.scheduled);
   const tGr=G.reduce((a,g)=>a+gGrafted(g),0);
@@ -943,7 +690,6 @@ function rDash(){
   const completed=G.filter(g=>gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
   return`${rFinisherStatus()}
-    ${rYardMap()}
     <div class="stats" style="margin-bottom:8px">
       <div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div>
       <div class="stat"><div class="n">${onGo}</div><div class="l">On the go</div></div>
@@ -1100,7 +846,9 @@ function gFinisherLabel(g){
 function rGraftCard(g){
   const B=hById(g.breeder_id);
   const outDate=gOutDate(g);const tGr=gGrafted(g),tOut=gOut(g);const gp=pct(tOut,tGr);
-  const done=gDone(g);const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),0);
+  const done=gDone(g);
+  const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),0);
+  const totalOut=(g.finishers||[]).reduce((a,f)=>a+(f.out||0),0);
   const wd=dayN(outDate);const wknd=isWknd(outDate);
   const isA=g.protocol==='autumn';const d=dayjs(g.date);
   const isCloakeG=g.method==='cloake';
@@ -1117,13 +865,6 @@ function rGraftCard(g){
     else{stg='Larval';stgC='#1e40af';}
     return`<div style="background:var(--gl);border:1px solid var(--gm);border-radius:var(--rs);padding:5px 8px;text-align:center;min-width:52px"><div style="font-size:11px;font-weight:700;color:var(--g)">${H?H.name:'?'}</div><div style="font-size:9px;font-weight:700;color:${stgC}">${stg}</div><div class="txs">${f.cells_received||0} in</div><div style="font-size:14px;font-weight:800;color:${fp===null?'var(--b3)':fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${f.out??'--'}</div>${fp!==null?`<div style="font-size:10px;font-weight:700;color:${fp>=70?'var(--g)':fp>=40?'var(--amb)':'var(--red)'}">${fp}%</div>`:''}</div>`;}).join('');
   const gc=graftColour(g);
-  // Alert if any active finisher is overdue for brood-up or swarm-check
-  const logAlertCount=!done?(g.finishers||[]).filter(f=>{
-    const H=hById(f.hive_id);if(!H||(f.out||0)>0)return false;
-    const dBU=daysSinceLog(H,['brood-up']);
-    const dSC=daysSinceLog(H,['swarm-check']);
-    return(dBU===null||dBU>=7)||(dSC===null||dSC>=7);
-  }).length:0;
   return`<div class="gc" style="border-color:${gc.border}">
     <div class="gc-hd" style="background:${gc.bg}" onclick="this.nextElementSibling.classList.toggle('open')">
       <div style="flex:1">
@@ -1132,7 +873,6 @@ function rGraftCard(g){
           <strong style="font-size:14px">${fmtF(g.date)}</strong>
           <span class="chip ${isA?'caut':'cstd'}">${isA?'Autumn':'Standard'}</span>
           <span class="chip cB" style="font-size:10px">${B?B.name:'?'}</span>
-          ${logAlertCount>0?`<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef2f2;border:1.5px solid #fca5a5;color:#b91c1c;font-weight:800">⚠ ${logAlertCount} hive${logAlertCount>1?'s':''} overdue</span>`:''}
         </div>
         <div style="margin-top:4px;display:flex;align-items:baseline;gap:4px">
           <span style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase;letter-spacing:.3px">Out</span>
@@ -1141,7 +881,7 @@ function rGraftCard(g){
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        ${tOut>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${tOut}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:!done&&cellsDue>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells due</div>`:''}
+        ${totalOut>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${totalOut}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:cellsDue>0&&!done?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells due</div>`:''}
         ${gp!==null?`<span class="chip ${gp>=70?'cok':gp>=40?'cwarn':'cbad'}" style="margin-top:2px">${gp}%</span>`:''}
       </div>
     </div>
@@ -1149,29 +889,6 @@ function rGraftCard(g){
       <div class="tl">${tl}</div>
       ${gp!==null?`<div class="txs mt8">Out / grafted</div>${pctBar(gp)}`:''}
 
-      ${isCloakeG ? (()=>{
-        const cf=(g.finishers||[])[0];
-        const grafted=tGr||0;
-        const started=cf?.cells_received||grafted;
-        const capped=cf?.capped||0;
-        const out=cf?.out||0;
-        const mated=cf?.mated||0;
-        const statPill=(label,val,total,col)=>{
-          const p=total>0?Math.round(val/total*100):null;
-          const colFn=p===null?'var(--b3)':p>=70?'var(--g)':p>=40?'var(--amb)':'var(--red)';
-          return`<div style="flex:1;text-align:center;padding:8px 4px;background:var(--cr);border-radius:var(--rs)">
-            <div style="font-size:18px;font-weight:800;color:${col||colFn}">${val||'--'}</div>
-            <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--b3);margin-bottom:2px">${label}</div>
-            ${p!==null?`<div style="font-size:10px;font-weight:700;color:${colFn}">${p}%</div>`:''}
-          </div>`;
-        };
-        return`<div style="display:flex;gap:6px;margin-top:10px">
-          ${statPill('Started',started,grafted,'#1e40af')}
-          ${statPill('Capped',capped,grafted,'#92400e')}
-          ${statPill('Out',out,grafted)}
-          ${statPill('Mated',mated,grafted)}
-        </div>`;
-      })() : `
       <div class="mt12" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
         <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
           onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
@@ -1197,7 +914,7 @@ function rGraftCard(g){
         <div style="display:none;align-items:center;gap:4px;flex-wrap:wrap;padding:10px 12px">
           ${finBoxes||'<span class="txs">Not assigned yet</span>'}
         </div>
-      </div>`}
+      </div>
 
       ${(g.yards||[]).length?`<div class="mt8" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
         <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gl);cursor:pointer"
@@ -1209,58 +926,6 @@ function rGraftCard(g){
           ${g.yards.map(y=>{const F=hById(y.fid);return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px"><span class="chip cF" style="font-size:10px">${F?F.name:'?'}</span><strong>${y.cells||0}</strong><span style="color:var(--b3)">→</span><span>${y.yard||'(no yard set)'}</span></div>`;}).join('')}
         </div>
       </div>`:''}
-
-      ${(()=>{
-        // Per-finisher log status + collapsible log entries
-        const fins=(g.finishers||[]).filter(f=>!gDone(g)||(f.out||0)>0);
-        if(!fins.length)return'';
-        // Build status pills — days since brood up / swarm check
-        const pills=fins.map(f=>{
-          const H=hById(f.hive_id);if(!H)return'';
-          const dBU=daysSinceLog(H,['brood-up']);
-          const dSC=daysSinceLog(H,['swarm-check']);
-          const alertBU=dBU===null||dBU>=7;
-          const alertSC=dSC===null||dSC>=7;
-          const pillStyle=(alert)=>alert
-            ?'background:#fef2f2;border:1.5px solid #fca5a5;color:#b91c1c;font-weight:800'
-            :'background:var(--gl);border:1.5px solid var(--gm);color:var(--g);font-weight:700';
-          return`<div style="display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:var(--rs);background:var(--cr);border:1px solid var(--bdr)">
-            <span style="font-size:11px;font-weight:700;color:var(--g)">${H.name}</span>
-            <span style="font-size:10px;padding:2px 6px;border-radius:10px;${pillStyle(alertBU)}">🌿 ${dBU===null?'never':dBU+'d'}</span>
-            <span style="font-size:10px;padding:2px 6px;border-radius:10px;${pillStyle(alertSC)}">🐝 ${dSC===null?'never':dSC+'d'}</span>
-          </div>`;
-        }).join('');
-        // All log entries across all finisher hives, newest first
-        const allEntries=fins.flatMap(f=>{
-          const H=hById(f.hive_id);if(!H)return[];
-          return(H.log||[]).map(e=>({...e,hiveName:H.name}));
-        }).sort((a,b)=>b.date.localeCompare(a.date));
-        const entryRows=allEntries.map(e=>{
-          const types=(e.types||[e.type].filter(Boolean));
-          const labels=types.map(t=>{const lt=LOG_TYPES.find(x=>x.v===t);return lt?lt.l:t;});
-          return`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--bdr)">
-            <div style="min-width:60px;font-size:10px;font-weight:600;color:var(--b3);padding-top:2px">${fmt(e.date)}</div>
-            <div style="font-size:10px;font-weight:700;color:var(--g);min-width:36px">${e.hiveName}</div>
-            <div style="flex:1;display:flex;flex-wrap:wrap;gap:3px;align-items:center">
-              ${labels.map(l=>`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--gl);color:var(--g);font-weight:600">${l}</span>`).join('')}
-              ${e.note?`<span style="font-size:10px;color:var(--b3);font-style:italic">${e.note}</span>`:''}
-            </div>
-          </div>`;
-        }).join('')||'<p class="txs" style="color:var(--b3);padding:6px 0">No log entries yet — add from Hive Manager.</p>';
-        return`<div class="mt8" style="border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden">
-          <div style="padding:8px 12px;background:var(--cr)">
-            <div style="font-size:10px;font-weight:600;color:var(--b3);text-transform:uppercase;margin-bottom:6px">🌿 Brood up · 🐝 Swarm check — days since last</div>
-            <div style="display:flex;gap:5px;flex-wrap:wrap">${pills}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--gl);cursor:pointer"
-            onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=b.style.display==='none'?'›':'⌄'">
-            <span style="font-size:12px;font-weight:700">Log entries</span>
-            <span style="font-size:11px;color:var(--b3)">${allEntries.length} total</span>
-            <span class="chev ml" style="color:var(--b3)">›</span>
-          </div>
-          <div style="display:none;padding:8px 12px">${entryRows}</div>
-        </div>`;
-      })()}
 
       <div class="dvd"></div>
       <div class="brow">
@@ -1275,7 +940,7 @@ function rGraftCard(g){
 // GRAFT FORM
 function initDraft(existing){
   if(existing){draft={...existing,starters:(existing.starters||[]).map(s=>({...s}))};}
-  else{const defBreeder=hByType('breeder').filter(h=>!h.retired)[0]||hByType('finisher').filter(h=>!h.retired)[0];draft={id:null,date:today(),protocol:'standard',breeder_id:defBreeder?.id||'',starters:[],notes:'',grafted:0,cloake_hive_id:'',sky:'',temp:'',precip:false,precipTypes:[],graft_time:new Date().toTimeString().slice(0,5)};}
+  else{draft={id:null,date:today(),protocol:'standard',breeder_id:hByType('breeder')[0]?.id||'',starters:[],notes:'',grafted:0,cloake_hive_id:'',sky:'',temp:'',precip:false,precipTypes:[],graft_time:new Date().toTimeString().slice(0,5)};}
 }
 function startEdit(id){initDraft(gById(id));go('graft');}
 
@@ -1283,11 +948,9 @@ function rGraft(){
   if(!draft)initDraft(null);
   const f=draft;
   const breeders=hByType('breeder').filter(h=>!h.retired);
-  const finishersAsBreeder=numSort(hByType('finisher').filter(h=>!h.retired));
-  const allBreederOptions=[...breeders,...finishersAsBreeder];
   const starters=numSort(hByType('starter').filter(h=>!h.retired));
   const isA=f.protocol==='autumn';
-  if(!allBreederOptions.length)return`<div class="card"><div class="chd">Set up hives first</div><p class="tsm">Add at least one breeder or finisher.</p><button class="btn bp mt12" onclick="go('hives')">Set up hives</button></div>`;
+  if(!breeders.length)return`<div class="card"><div class="chd">Set up hives first</div><p class="tsm">Add at least one breeder.</p><button class="btn bp mt12" onclick="go('hives')">Set up hives</button></div>`;
   const d=dayjs(f.date);
   const outDate=isA?d.add(2,'day').format('YYYY-MM-DD'):d.add(10,'day').format('YYYY-MM-DD');
   const capDate=isA?null:d.add(5,'day').format('YYYY-MM-DD');
@@ -1322,8 +985,7 @@ function rGraft(){
       <div class="field"><label>Breeder</label>
         <select onchange="draft.breeder_id=this.value">
           <option value="">Select...</option>
-          ${breeders.length?`<optgroup label="Breeders">${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}</optgroup>`:''}
-          ${finishersAsBreeder.length?`<optgroup label="Finishers (used as breeder)">${finishersAsBreeder.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}</optgroup>`:''}
+          ${breeders.map(h=>`<option value="${h.id}" ${f.breeder_id===h.id?'selected':''}>${h.name}</option>`).join('')}
         </select></div>
     </div>
     ${cloake?`<div class="mt12">
@@ -1429,7 +1091,6 @@ function saveGraft(){
     graft_time:f.graft_time||new Date().toTimeString().slice(0,5),
     method:cloakeMode?'cloake':'starter_finisher',
     cloake_hive_id:f.cloake_hive_id||null,
-    grafted:f.grafted||0,
     starters:cloakeMode?[]:(f.starters||[]).filter(s=>s.cells_in>0),
     finishers:cloakeMode?existingFinishers:existingFinishers,
     notes:f.notes||'',sky:f.sky||'',temp:f.temp||'',precip:f.precip||false,precipTypes:f.precipTypes||[],updated_at:new Date().toISOString()
@@ -1528,7 +1189,6 @@ function renderRecPanel(id){
   document.getElementById('pactions').innerHTML=`<button class="btn bg bx" onclick="startEdit('${id}');closePanel()">Edit</button>`;
   const tGr=gGrafted(g),tOut=gOut(g),tMt=gMated(g);
   const tIn=(g.finishers||[]).reduce((a,f)=>a+(f.cells_received||0),0);
-  const tCapped=(g.finishers||[]).reduce((a,f)=>a+(f.capped||0),0);
   const gp=pct(tOut,tGr);
   const finishers=numSort(hByType('finisher'));
 
@@ -1649,13 +1309,6 @@ function renderRecPanel(id){
         <div class="field" style="flex:1"><label style="font-size:9px">Capped date</label><input type="date" style="font-size:12px;padding:6px 8px" value="${estCap}" onchange="updFin('${id}',${i},'capped_date',this.value)"></div>
         <div class="field" style="flex:1"><label style="font-size:9px">Out date</label><input type="date" style="font-size:12px;padding:6px 8px" value="${estOut}" onchange="updFin('${id}',${i},'out_date',this.value)"></div>
       </div>`:''}
-      <div style="display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr)">
-        <span style="font-size:11px;color:var(--b3);white-space:nowrap">Move to hive:</span>
-        <select style="flex:1;padding:6px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)" onchange="(()=>{const newHid=this.value;if(!newHid)return;const g=gById('${id}');if(!g)return;g.finishers[${i}].hive_id=newHid;stamp(g);save();renderRecPanel('${id}');toast('Moved to '+hiveLabel(hById(newHid)));})()">
-          <option value="">Select…</option>
-          ${numSort(hByType('finisher')).filter(fh=>fh.id!==f.hive_id&&!fh.retired).map(fh=>`<option value="${fh.id}">${fh.name}</option>`).join('')}
-        </select>
-      </div>
     </div>`;
   }).join('');
 
@@ -1685,133 +1338,74 @@ function renderRecPanel(id){
       <button class="btn bd bx" onclick="remYard2('${id}',${yi})">x</button>
     </div>`).join('');
 
-  const assignBlock = isCloakeRec ? '' : (()=>{
-    const allAllocated = !noStarters && (g.starters||[]).every(s=>{
-      const acc = s.cells_accepted!=null ? s.cells_accepted : 0;
-      const sent = (g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
-      return acc>0 && sent>=acc;
-    });
-    const allocChip = allAllocated ? '<span class="chip cok" style="margin-left:6px">All allocated</span>' : '';
-    const innerContent = noStarters
-      ? '<p class="tsm">No starters on this graft. <button class=\"btn bg bx\" onclick=\"startEdit(\'' + id + '\');closePanel()\">Edit to add starters</button></p>'
-      : '<p class="tsm" style="margin-bottom:10px">Enter cells from each starter and select a finisher.</p>'
-        + assignRows
-        + '<button class="btn bp bb mt8" onclick=\"saveAssign(\'' + id + '\')\">Save assignments</button>'
-        + '<div class="dvd"></div>'
-        + '<div class="lbl">Add extra cells to a finisher</div>'
-        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-        + '<select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">'
-        + '<option value="">Select F...</option>'
-        + sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);const sum=finisherAllocSummary(f.id,id);return '<option value="'+f.id+'" style="'+(av?'':'color:#b0b0b0')+'">'+(av?'✓ ':'⊘ ')+hiveLabel(f)+(sum?' — '+sum:av?' available':' growing')+'</option>';}).join('')
-        + '</select>'
-        + '<input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">'
-        + '<button class="btn bp bs" onclick=\"saveExtra(\'' + id + '\')\">Add</button>'
-        + '</div>';
-    return '<div class="card" style="border:2px solid var(--g);padding:0;overflow:hidden">'
-      + '<div style="display:flex;align-items:center;gap:8px;padding:18px;cursor:pointer" onclick=\"this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.chev\').textContent=this.nextElementSibling.style.display===\'none\'?\'›\':\'⌄\'\">'
-      + '<span style="font-size:15px;font-weight:700;color:var(--g)">Assign cells to finishers</span>'
-      + allocChip
-      + '<span class="chev" style="margin-left:auto;color:var(--g);font-size:18px">›</span>'
-      + '</div>'
-      + '<div style="display:none;padding:0 18px 18px">' + innerContent + '</div>'
-      + '</div>';
-  })();
-
   document.getElementById('pbody').innerHTML=`
     <div class="card">
       <div class="chd">Summary</div>
-      ${(()=>{
-        const isCloake=g.method==='cloake';
-        const fr=(g.finishers||[])[0];
-        const finIdx=0;
-        const inpSt='width:100%;border:none;background:transparent;text-align:center;font-size:22px;font-weight:800;outline:none;line-height:1;padding:0;-moz-appearance:textfield;';
-        if(isCloake){
-          const grVal=g.grafted||0;
-          const inVal=fr?.cells_received||0;
-          const capVal=fr?.capped||0;
-          const outVal=fr?.out||0;
-          const gid=g.id;
-          return`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px">
-            <div class="stat"><div class="n"><input type="number" min="0" style="${inpSt}color:var(--g)" value="${grVal||''}" placeholder="--" onchange="updGraftFlag('${gid}','grafted',+this.value||0);renderRecPanel('${gid}')"></div><div class="l">Grafted</div></div>
-            <div class="stat" style="${inVal>0?'background:#dbeafe;border-radius:var(--rs)':''}"><div class="n" style="${inVal>0?'color:#1e40af':''}"><input type="number" min="0" style="${inpSt}color:${inVal>0?'#1e40af':'inherit'}" value="${inVal||''}" placeholder="--" onchange="updFin('${gid}',${finIdx},'cells_received',+this.value||0);renderRecPanel('${gid}')"></div><div class="l">Started</div></div>
-            <div class="stat" style="${capVal>0?'background:#fef3c7;border-radius:var(--rs)':''}"><div class="n" style="${capVal>0?'color:#92400e':''}"><input type="number" min="0" style="${inpSt}color:${capVal>0?'#92400e':'inherit'}" value="${capVal||''}" placeholder="--" onchange="updFin('${gid}',${finIdx},'capped',+this.value||0);renderRecPanel('${gid}')"></div><div class="l">Capped</div></div>
-            <div class="stat" style="${outVal>0?'background:var(--gl);border-radius:var(--rs)':''}"><div class="n" style="${outVal>0?'color:var(--g)':''}"><input type="number" min="0" style="${inpSt}color:${outVal>0?'var(--g)':'inherit'}" value="${outVal||''}" placeholder="--" onchange="updFin('${gid}',${finIdx},'out',+this.value||0);renderRecPanel('${gid}')"></div><div class="l">Out</div></div>
-          </div>
-          <div style="font-size:10px;color:var(--b3);text-align:center;margin-bottom:8px">Tap a number to edit</div>`;
-        } else {
-          const starters=g.starters||[];
-          const gid=g.id;
-          const grVal=tGr||0;
-          const grInput=starters.length===1
-            ?`<input type="number" min="0" style="${inpSt}color:var(--g)" value="${starters[0].cells_in||''}" placeholder="--" onchange="(function(v){const g=gById('${gid}');if(g&&g.starters&&g.starters[0]){g.starters[0].cells_in=v;stamp(g);save();renderRecPanel('${gid}');}})((+this.value)||0)">`
-            :starters.length===0
-              ?`<input type="number" min="0" style="${inpSt}color:var(--g)" value="${g.grafted||''}" placeholder="--" onchange="updGraftFlag('${gid}','grafted',+this.value||0);renderRecPanel('${gid}')">`
-              :`<span>${grVal||'--'}</span>`;
-          const multiF=(g.finishers||[]).length>1;
-          const singleF=(g.finishers||[]).length===1;
-          const sf=(g.finishers||[])[0];
-          const sfIdx=0;
-          const sfId=g.id;
-          const inInput=singleF
-            ?`<input type="number" min="0" style="${inpSt}color:${tIn>0?'#1e40af':'inherit'}" value="${sf?.cells_received||''}" placeholder="--" onchange="updFin('${sfId}',${sfIdx},'cells_received',+this.value||0);renderRecPanel('${sfId}')">`
-            :`${tIn||'--'}`;
-          const capInput=singleF
-            ?`<input type="number" min="0" style="${inpSt}color:${tCapped>0?'#92400e':'inherit'}" value="${sf?.capped||''}" placeholder="--" onchange="updFin('${sfId}',${sfIdx},'capped',+this.value||0);renderRecPanel('${sfId}')">`
-            :`${tCapped||'--'}`;
-          const outInput=singleF
-            ?`<input type="number" min="0" style="${inpSt}color:${tOut>0?'var(--g)':'inherit'}" value="${sf?.out||''}" placeholder="--" onchange="updFin('${sfId}',${sfIdx},'out',+this.value||0);renderRecPanel('${sfId}')">`
-            :`${tOut||'--'}`;
-          return`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px">
-            <div class="stat"><div class="n" style="color:var(--g)">${grInput}</div><div class="l">Grafted</div></div>
-            <div class="stat" style="${tIn>0?'background:#dbeafe;border-radius:var(--rs)':''}"><div class="n" style="${tIn>0?'color:#1e40af':''}">${inInput}</div><div class="l">Started</div></div>
-            <div class="stat" style="${tCapped>0?'background:#fef3c7;border-radius:var(--rs)':''}"><div class="n" style="${tCapped>0?'color:#92400e':''}">${capInput}</div><div class="l">Capped</div></div>
-            <div class="stat" style="${tOut>0?'background:var(--gl);border-radius:var(--rs)':''}"><div class="n" style="${tOut>0?'color:var(--g)':''}">${outInput}</div><div class="l">Out</div></div>
-          </div>
-          <div style="font-size:10px;color:var(--b3);text-align:center;margin-bottom:8px">${multiF?'Started / Capped / Out — edit per finisher below ↓':'Tap a number to edit'}</div>`;
-        }
-      })()}
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
+        <div class="stat"><div class="n">${tGr}</div><div class="l">Grafted</div></div>
+        <div class="stat"><div class="n">${tIn}</div><div class="l">In finishers</div></div>
+        <div class="stat"><div class="n">${tOut}</div><div class="l">Out</div></div>
+      </div>
       ${gp!==null?`<div class="lbl">Out / grafted</div>${pctBar(gp)}`:''}
     </div>
     ${(g.starters||[]).length?`<div class="card"><div class="chd">Starters</div>${stSummary}</div>`:''}
-    ${assignBlock}
+    ${isCloakeRec?`<div class="card">
+      <div class="chd">Cloake Board Prompts</div>
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <button class="btn ${g.slide_in_done?'bp':'bo'} bs" style="flex:1;gap:8px"
+          onclick="updGraftFlag('${id}','slide_in_done',!${!!g.slide_in_done});renderRecPanel('${id}')">
+          🔲 Slide in${g.slide_in_done?' ✓':' (day before graft)'}
+        </button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ${g.slide_out_done?'bp':'bo'} bs" style="flex:1;gap:8px"
+          onclick="updGraftFlag('${id}','slide_out_done',!${!!g.slide_out_done});renderRecPanel('${id}')">
+          🔳 Slide out${g.slide_out_done?' ✓':' (day after graft)'}
+        </button>
+      </div>
+    </div>`:''}
+    ${(()=>{
+      // Determine if everything is already allocated (collapse by default if so)
+      const allAllocated = !noStarters && (g.starters||[]).every(s=>{
+        const acc = s.cells_accepted!=null ? s.cells_accepted : 0;
+        const sent = (g.finishers||[]).reduce((a,f)=>{const src=(f.sources||[]).find(x=>x.sid===s.hive_id);return a+(src?src.count:0);},0);
+        return acc>0 && sent>=acc;
+      });
+      const startOpen = false;
+      return `<div class="card" style="border:2px solid var(--g);padding:0;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:18px 18px ${startOpen?'14px':'18px'};cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
+          <span style="font-size:15px;font-weight:700;color:var(--g)">Assign cells to finishers</span>
+          ${allAllocated?'<span class="chip cok" style="margin-left:6px">All allocated</span>':''}
+          <span class="chev" style="margin-left:auto;color:var(--g);font-size:18px">${startOpen?'⌄':'›'}</span>
+        </div>
+        <div style="display:${startOpen?'block':'none'};padding:0 18px 18px">
+          ${noStarters?`<p class="tsm">No starters on this graft. <button class="btn bg bx" onclick="startEdit('${id}');closePanel()">Edit to add starters</button></p>`:`
+            <p class="tsm" style="margin-bottom:10px">Enter cells from each starter and select a finisher. Saved rows are highlighted green and stay visible — edit them any time.</p>
+            ${assignRows}
+            <button class="btn bp bb mt8" onclick="saveAssign('${id}')">Save assignments</button>
+            <div class="dvd"></div>
+            <div class="lbl">Add extra cells to a finisher</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <select id="ef" style="flex:1;min-width:120px;padding:8px;font-size:14px;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+                <option value="">Select F...</option>
+                ${sortedFinishersByAvail(id).map(f=>{const av=finisherAvailable(f.id,id);const sum=finisherAllocSummary(f.id,id);return `<option value="${f.id}" style="${av?'':'color:#b0b0b0'}">${av?'✓ ':'⊘ '}${hiveLabel(f)}${sum?' — '+sum:av?' available':' growing'}</option>`;}).join('')}
+              </select>
+              <input type="number" id="ec" min="0" placeholder="cells" style="width:80px;padding:8px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
+              <button class="btn bp bs" onclick="saveExtra('${id}')">Add</button>
+            </div>`}
+        </div>
+      </div>`;
+    })()}
     <div class="card" style="padding:0;overflow:hidden">
       <div style="display:flex;align-items:center;gap:8px;padding:18px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
         <span style="font-size:15px;font-weight:700">Finisher Records</span>
         <span class="txs ml">${tGr} grafted · ${tIn} assigned</span>
-        <span class="chev" style="color:var(--b3);font-size:18px">⌄</span>
+        <span class="chev" style="color:var(--b3);font-size:18px">›</span>
       </div>
-      <div style="padding:0 18px 18px">
+      <div style="display:none;padding:0 18px 18px">
         ${(g.finishers||[]).length?finRows:'<p class="tsm">No finishers assigned yet.</p>'}
       </div>
     </div>
-    ${(g.finishers||[]).length>1?`<div class="card" style="border:1.5px solid var(--bdr)">
-      <div class="chd">Move cells between finishers</div>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <select id="mfc-from-${g.id}" style="flex:1;min-width:80px;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-          <option value="">From…</option>
-          ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return`<option value="${f.hive_id}">${H?H.name:'?'} (${f.cells_received||0})</option>`;}).join('')}
-        </select>
-        <span style="color:var(--b3);font-size:18px">→</span>
-        <select id="mfc-to-${g.id}" style="flex:1;min-width:80px;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-          <option value="">To…</option>
-          ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return`<option value="${f.hive_id}">${H?H.name:'?'} (${f.cells_received||0})</option>`;}).join('')}
-        </select>
-        <input id="mfc-n-${g.id}" type="number" min="1" placeholder="n" style="width:60px;padding:7px;text-align:center;font-size:16px;font-weight:800;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht)">
-        <button class="btn bp bs" onclick="moveFinCells('${g.id}')">Move</button>
-      </div>
-    </div>`:''}
-    ${(g.finishers||[]).length?`<div class="card" style="border:1.5px solid #fecaca;background:#fff5f5">
-      <div class="chd" style="color:#b91c1c">Retire a finisher hive</div>
-      <p class="tsm" style="margin-bottom:10px">Mark a hive as no longer active — it will be greyed out on the map and excluded from future grafts.</p>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <select id="ret-hive-${g.id}" style="flex:1;padding:7px 8px;font-size:13px;font-weight:700;border:1.5px solid #fca5a5;border-radius:var(--rs);background:var(--wht)">
-          <option value="">Select hive…</option>
-          ${(g.finishers||[]).map(f=>{const H=hById(f.hive_id);return H&&!H.retired?`<option value="${f.hive_id}">${H.name}</option>`:'';}).join('')}
-        </select>
-        <button class="btn bd bs" onclick="(()=>{const hid=document.getElementById('ret-hive-${g.id}').value;if(!hid)return;const hh=hById(hid);if(!hh)return;if(!confirm('Retire '+hh.name+'?'))return;hh.retired=true;hh.retired_date='${today()}';stamp(hh);save();renderRecPanel('${g.id}');toast(hh.name+' retired');})()">Retire</button>
-      </div>
-    </div>`:''}
-
     <div class="card">
       <div class="chd">Yard Allocation <span class="txs ml">where did the cells go?</span></div>
       ${outFinishers.length?`
@@ -1879,55 +1473,6 @@ function saveExtra(gid){
 
 function updGraftFlag(gid,key,val){const g=gById(gid);if(!g)return;g[key]=val;stamp(g);save();}
 function updFin(gid,i,k,v){const g=gById(gid);if(!g)return;g.finishers[i][k]=v;stamp(g);save();}
-function moveGraftToHive(gid,fromHid,toHid){
-  if(!toHid)return;
-  const gr=gById(gid);if(!gr)return;
-  // Cloake graft: update cloake_hive_id and first finisher hive_id
-  if(gr.method==='cloake'){
-    gr.cloake_hive_id=toHid;
-    if(gr.finishers&&gr.finishers[0])gr.finishers[0].hive_id=toHid;
-    stamp(gr);save();
-    document.getElementById('hive-map-popup')?.remove();
-    render();
-    toast('Moved to '+hiveLabel(hById(toHid)));
-    return;
-  }
-  // Standard graft: find finisher by fromHid, fall back to first finisher if only one
-  let fi=(gr.finishers||[]).findIndex(f=>f.hive_id===fromHid);
-  if(fi<0&&(gr.finishers||[]).length===1)fi=0;
-  if(fi>=0){
-    gr.finishers[fi].hive_id=toHid;
-    stamp(gr);save();
-    document.getElementById('hive-map-popup')?.remove();
-    render();
-    toast('Moved to '+hiveLabel(hById(toHid)));
-    return;
-  }
-  toast('Could not find finisher record — try Record / update instead');
-}
-function moveFinCells(gid){
-  const g=gById(gid);if(!g)return;
-  const fromId=document.getElementById('mfc-from-'+gid)?.value;
-  const toId=document.getElementById('mfc-to-'+gid)?.value;
-  const n=parseInt(document.getElementById('mfc-n-'+gid)?.value||'0');
-  if(!fromId||!toId||fromId===toId||n<=0){toast('Select two different finishers and a cell count');return;}
-  const fi=g.finishers.findIndex(f=>f.hive_id===fromId);
-  const ti=g.finishers.findIndex(f=>f.hive_id===toId);
-  if(fi<0||ti<0){toast('Finisher not found');return;}
-  const fromF=g.finishers[fi];
-  const avail=fromF.cells_received||0;
-  if(n>avail){toast('Only '+avail+' cells in that finisher');return;}
-  fromF.cells_received=avail-n;
-  g.finishers[ti].cells_received=(g.finishers[ti].cells_received||0)+n;
-  // track in sources
-  if(!g.finishers[ti].sources)g.finishers[ti].sources=[];
-  const existSrc=g.finishers[ti].sources.find(s=>s.sid===fromId);
-  if(existSrc)existSrc.count+=n; else g.finishers[ti].sources.push({sid:fromId,count:n});
-  stamp(g);save();
-  document.getElementById('mfc-n-'+gid).value='';
-  renderRecPanel(gid);
-  toast('Moved '+n+' cells → '+hiveLabel(hById(toId)));
-}
 function remFin(gid,i){const g=gById(gid);if(!g)return;g.finishers.splice(i,1);stamp(g);save();renderRecPanel(gid);}
 function addYard2(gid){const g=gById(gid);if(!g)return;if(!g.yards)g.yards=[];g.yards.push({fid:'',cells:'',yard:''});stamp(g);save();renderRecPanel(gid);}
 function updYard2(gid,yi,k,v){const g=gById(gid);if(!g||!g.yards||!g.yards[yi])return;g.yards[yi][k]=v;stamp(g);save();}
@@ -2214,95 +1759,20 @@ function rStats(){
   const G=DB.grafts.filter(g=>!g.scheduled);
   if(!G.length)return`<div class="card"><div class="empty"><p>No data yet.</p></div></div>`;
   const tGr=G.reduce((a,g)=>a+gGrafted(g),0),tOut=G.reduce((a,g)=>a+gOut(g),0),tMt=G.reduce((a,g)=>a+gMated(g),0);
-  const tIn=G.reduce((a,g)=>a+(g.finishers||[]).reduce((b,f)=>b+(f.cells_received||0),0),0);
-  const tCap=G.reduce((a,g)=>a+(g.finishers||[]).reduce((b,f)=>b+(f.capped||0),0),0);
   const bp=pct(tOut,tGr),mp=pct(tMt,tGr);
-  const pStIn=pct(tIn,tGr),pCapIn=pct(tCap,tIn),pOutCap=pct(tOut,tCap),pOutIn=pct(tOut,tIn);
   const byWeek={};G.forEach(g=>{const wk=dayjs(g.date).startOf('week').format('YYYY-MM-DD');if(!byWeek[wk])byWeek[wk]={grafted:0,out:0,mated:0,count:0};byWeek[wk].grafted+=gGrafted(g);byWeek[wk].out+=gOut(g);byWeek[wk].mated+=gMated(g);byWeek[wk].count++;});
   const wkRows=Object.entries(byWeek).sort((a,b)=>b[0].localeCompare(a[0])).map(([wk,d])=>{const p=pct(d.out,d.grafted);return`<tr><td style="padding:8px;font-size:12px;font-weight:600">Wk ${fmt(wk)}</td><td style="padding:8px;text-align:center">${d.count}</td><td style="padding:8px;text-align:center">${d.grafted}</td><td style="padding:8px;text-align:center">${d.out}</td><td style="padding:8px;text-align:center">${p!==null?`<span class="chip ${p>=70?'cok':p>=40?'cwarn':'cbad'}">${p}%</span>`:'--'}</td></tr>`;}).join('');
   const fs={};G.forEach(g=>(g.finishers||[]).forEach(f=>{if(!fs[f.hive_id])fs[f.hive_id]={in:0,out:0};fs[f.hive_id].in+=(f.cells_received||0);fs[f.hive_id].out+=(f.out||0);}));
   const fRows=Object.entries(fs).map(([fid,d])=>{const F=hById(fid);const p=pct(d.out,d.in);return`<tr><td style="padding:8px;font-size:12px;font-weight:600">${F?F.name:fid}</td><td style="padding:8px;text-align:center">${d.in}</td><td style="padding:8px;text-align:center">${d.out}</td><td style="padding:8px;text-align:center">${p!==null?`<span class="chip ${p>=70?'cok':p>=40?'cwarn':'cbad'}">${p}%</span>`:'--'}</td></tr>`;}).join('');
   const ss={};G.forEach(g=>(g.starters||[]).forEach(s=>{if(!ss[s.hive_id])ss[s.hive_id]={in:0,accepted:0,hasAccepted:false};ss[s.hive_id].in+=(s.cells_in||0);if(s.cells_accepted!=null){ss[s.hive_id].accepted+=s.cells_accepted;ss[s.hive_id].hasAccepted=true;}}));
   const sRows=Object.entries(ss).map(([sid,d])=>{const S=hById(sid);const p=d.hasAccepted?pct(d.accepted,d.in):null;return`<tr><td style="padding:8px;font-size:12px;font-weight:600">${S?S.name:sid}</td><td style="padding:8px;text-align:center">${d.in}</td><td style="padding:8px;text-align:center">${d.hasAccepted?d.accepted:'--'}</td><td style="padding:8px;text-align:center">${p!==null?`<span class="chip ${p>=70?'cok':p>=40?'cwarn':'cbad'}">${p}%</span>`:'--'}</td></tr>`;}).join('');
-  const convRow=(label,val,num,den)=>{const col=val===null?'var(--b3)':val>=70?'var(--g)':val>=40?'var(--amb)':'var(--red)';return`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bdr)"><div style="flex:1"><div style="font-size:12px;font-weight:600;color:var(--b2)">${label}</div><div style="font-size:11px;color:var(--b3)">${num} of ${den}</div></div><div style="text-align:right"><span style="font-size:22px;font-weight:800;color:${col}">${val!==null?val+'%':'--'}</span></div></div>`;};
-  // YARD CHECKLIST
-  const tdStr2=today();
-  // Collect one entry per active finisher hive, with graft context
-  const finHiveMap={};
-  G.filter(g=>!gDone(g)||(g.finishers||[]).some(f=>!(f.out>0))).forEach(g=>{
-    (g.finishers||[]).forEach(f=>{
-      if(f.out>0)return; // already done
-      const hid=f.hive_id;
-      if(!finHiveMap[hid])finHiveMap[hid]={f,g,checks:[]};
-      // Started check: show from day 1 after graft until cells_received is entered
-      const startedCheckDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
-      if(tdStr2>=startedCheckDate&&!(f.cells_received>0)){
-        finHiveMap[hid].checks.push({type:'started',label:'Started check',color:'#1e40af',bg:'#dbeafe',bdr:'#93c5fd'});
-      }
-      // Cappings check: show from capping date until capped is entered
-      const capDate=f.capped_date||gCapDate(g);
-      if(tdStr2>=capDate&&!(f.capped>0)&&g.protocol!=='autumn'){
-        finHiveMap[hid].checks.push({type:'capped',label:'Capping check',color:'#92400e',bg:'#fef3c7',bdr:'#fcd34d'});
-      }
-    });
-  });
-  const yardRows2=Object.entries(finHiveMap).map(([hid,{f,g,checks}])=>{
-    const H=hById(hid);if(!H||H.retired)return null;
-    const dBU=daysSinceLog(H,['brood-up']);
-    const dSC=daysSinceLog(H,['swarm-check']);
-    const needsBU=dBU===null||dBU>=7;
-    const needsSC=dSC===null||dSC>=7;
-    const urgent=needsBU||needsSC||checks.length>0;
-    return{H,dBU,dSC,needsBU,needsSC,checks,urgent,score:(checks.length*2000)+(dBU??999)+(dSC??999)};
-  }).filter(Boolean).sort((a,b)=>b.score-a.score);
-  const urgentCount=yardRows2.filter(r=>r.urgent).length;
-  const pill=(label,val,col,bg,bdr)=>`<div style="text-align:center;padding:4px 8px;border-radius:var(--rs);background:${bg};border:1.5px solid ${bdr};min-width:52px">
-    <div style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase">${label}</div>
-    <div style="font-size:12px;font-weight:800;color:${col}">${val}</div>
-  </div>`;
-  const yardHtml=yardRows2.length?yardRows2.map(r=>{
-    const buCol=r.needsBU?'#b91c1c':'var(--g)';
-    const scCol=r.needsSC?'#b91c1c':'var(--g)';
-    const buBg=r.needsBU?'#fef2f2':'var(--gl)';
-    const scBg=r.needsSC?'#fef2f2':'var(--gl)';
-    const buBdr=r.needsBU?'#fca5a5':'var(--gm)';
-    const scBdr=r.needsSC?'#fca5a5':'var(--gm)';
-    return`<div style="padding:10px 0;border-bottom:1px solid var(--bdr)">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${r.checks.length?'7px':'0'}">
-        <div style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${r.urgent?'#ef4444':'var(--g)'}"></div>
-        <div style="flex:1;font-size:13px;font-weight:700">${r.H.name}${r.H.notes?`<span style="font-size:10px;font-weight:400;color:var(--b3);margin-left:6px;font-style:italic">${r.H.notes}</span>`:''}</div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
-          ${pill('Brood up',r.dBU===null?'never':r.dBU+'d ago',buCol,buBg,buBdr)}
-          ${pill('Swarm chk',r.dSC===null?'never':r.dSC+'d ago',scCol,scBg,scBdr)}
-        </div>
-      </div>
-      ${r.checks.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;padding-left:16px">
-        ${r.checks.map(c=>`<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;background:${c.bg};border:1.5px solid ${c.bdr};color:${c.color}">${c.label}</span>`).join('')}
-      </div>`:''}
-    </div>`;
-  }).join(''):'<p class="tsm" style="color:var(--b3)">No active finishers.</p>';
-  return`<div class="card" style="border:2px solid ${urgentCount>0?'#ef4444':'var(--g)'}">
-    <div class="chd" style="color:${urgentCount>0?'#b91c1c':'var(--g)'}">
-      🐝 Yard Checklist
-      ${urgentCount>0?`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;font-weight:800;margin-left:8px">${urgentCount} need attention</span>`:'<span style="font-size:11px;color:var(--b3);font-weight:400;margin-left:8px">all up to date</span>'}
-    </div>
-    <div style="font-size:11px;color:var(--b3);margin-bottom:10px">Brood up &amp; swarm check alert after 7 days · time-sensitive checks shown when due</div>
-    ${yardHtml}
-  </div>
-  <div class="card" style="border:2px solid var(--g)">
+  return`<div class="card" style="border:2px solid var(--g)">
     <div class="lbl">Overall Breeding %</div>
     <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><span style="font-size:48px;font-weight:800;color:var(--g);line-height:1">${bp!==null?bp+'%':'--'}</span><span class="tsm">${tOut} out of ${tGr} grafted</span></div>
     ${pctBar(bp)}
     ${mp!==null?`<div class="lbl mt8">Mated</div><div style="font-size:28px;font-weight:800;color:var(--g)">${mp}%</div>${pctBar(mp)}`:''}
   </div>
-  <div class="card">
-    <div class="chd">Conversion Funnel</div>
-    ${convRow('Started from grafted',pStIn,tIn,tGr)}
-    ${convRow('Capped from started',pCapIn,tCap,tIn)}
-    ${convRow('Out from capped',pOutCap,tOut,tCap)}
-    ${convRow('Out from started',pOutIn,tOut,tIn)}
-  </div>
-  <div class="stats"><div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div><div class="stat"><div class="n">${tGr}</div><div class="l">Grafted</div></div><div class="stat"><div class="n">${tIn}</div><div class="l">Started</div></div><div class="stat"><div class="n">${tCap}</div><div class="l">Capped</div></div><div class="stat"><div class="n">${tOut}</div><div class="l">Out</div></div><div class="stat"><div class="n">${tMt}</div><div class="l">Mated</div></div></div>
+  <div class="stats"><div class="stat"><div class="n">${G.length}</div><div class="l">Grafts</div></div><div class="stat"><div class="n">${tGr}</div><div class="l">Grafted</div></div><div class="stat"><div class="n">${tOut}</div><div class="l">Out</div></div><div class="stat"><div class="n">${tMt}</div><div class="l">Mated</div></div></div>
   <div class="card"><div class="chd">By Week</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--gl)"><th style="padding:8px;text-align:left">Week</th><th style="padding:8px">Grafts</th><th style="padding:8px">Grafted</th><th style="padding:8px">Out</th><th style="padding:8px">Rate</th></tr></thead><tbody>${wkRows}</tbody></table></div></div>
   <div class="card"><div class="chd">By Starter</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--gl)"><th style="padding:8px;text-align:left">Starter</th><th style="padding:8px">Grafted in</th><th style="padding:8px">Accepted</th><th style="padding:8px">Rate</th></tr></thead><tbody>${sRows||'<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--b3)">No data yet</td></tr>'}</tbody></table></div></div>
   <div class="card"><div class="chd">By Finisher</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--gl)"><th style="padding:8px;text-align:left">Finisher</th><th style="padding:8px">In</th><th style="padding:8px">Out</th><th style="padding:8px">Rate</th></tr></thead><tbody>${fRows||'<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--b3)">No data yet</td></tr>'}</tbody></table></div></div>
