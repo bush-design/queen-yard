@@ -688,6 +688,30 @@ function rDash(){
     </div>`;}).join('')}</div>`:'';
   const active=G.filter(g=>!gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
   const completed=G.filter(g=>gDone(g)&&!g.scheduled).sort((a,b)=>b.date.localeCompare(a.date));
+  // Build batch summary: group active grafts by out date
+  const batchMap={};
+  active.forEach(g=>{
+    const od=gOutDate(g);
+    if(!batchMap[od])batchMap[od]={grafts:[],gc:graftColour(g)};
+    batchMap[od].grafts.push(g);
+  });
+  const batchSummaryHtml=Object.keys(batchMap).sort().map(od=>{
+    const{grafts,gc}=batchMap[od];
+    const total=grafts.reduce((a,g)=>(g.finishers||[]).reduce((b,f)=>b+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),a),0);
+    if(!total)return'';
+    const wd=dayN(od);const wknd=isWknd(od);
+    return`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:var(--rs);background:${gc.bg};border:1.5px solid ${gc.border}">
+      <div>
+        <span style="font-size:11px;font-weight:700;color:${gc.text}">${relDay(od)||wd} ${fmt(od)}</span>
+        ${wknd?`<span style="font-size:9px;font-weight:700;color:var(--red);margin-left:4px">Wknd</span>`:''}
+        <span style="font-size:10px;color:var(--b3);margin-left:6px">${grafts.length} graft${grafts.length>1?'s':''}</span>
+      </div>
+      <div style="text-align:right">
+        <span style="font-size:20px;font-weight:800;color:${gc.text};line-height:1">${total}</span>
+        <span style="font-size:9px;color:var(--b3);display:block;text-transform:uppercase">cells due</span>
+      </div>
+    </div>`;
+  }).filter(Boolean).join('');
   const bC=hByType('breeder').length,sC=hByType('starter').length,fC=hByType('finisher').length;
   return`${rFinisherStatus()}
     <div class="stats" style="margin-bottom:8px">
@@ -701,6 +725,7 @@ function rDash(){
         <button class="btn bo bx" onclick="openScheduleModal()">Schedule</button>
         <button class="btn bp bx" onclick="go('graft')">+ New graft</button>
       </span></div>
+      ${batchSummaryHtml?`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">${batchSummaryHtml}</div>`:''}
       ${active.length?active.map(rGraftCard).join(''):completed.length?'<p class="tsm" style="padding:8px 0">No active batches — all done!</p>':rOnboarding()}
       ${completed.length?`<div style="margin-top:${active.length?'10px':'0'}">
         <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--gl);border-radius:var(--rs);cursor:pointer"
