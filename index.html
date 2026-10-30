@@ -881,7 +881,7 @@ function rGraftCard(g){
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        ${totalOut>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${totalOut}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:cellsDue>0&&!done?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells due</div>`:''}
+        ${totalOut>0?`<div style="font-size:20px;font-weight:800;color:var(--g);line-height:1">${totalOut}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">cells out</div>`:cellsDue>0?`<div style="font-size:20px;font-weight:800;color:${done?'var(--b3)':'var(--g)'};line-height:1">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">${done?'cells due':'cells due'}</div>`:''}
         ${gp!==null?`<span class="chip ${gp>=70?'cok':gp>=40?'cwarn':'cbad'}" style="margin-top:2px">${gp}%</span>`:''}
       </div>
     </div>
