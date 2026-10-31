@@ -710,35 +710,79 @@ function showHiveMapPopup(hid){
 }
 
 // ── Yard Checklist ──────────────────────────────────
+function daysSinceLog(h,types){
+  if(!h||!(h.log||[]).length)return null;
+  const entries=(h.log||[]).filter(e=>(e.types||[e.type].filter(Boolean)).some(t=>types.includes(t)));
+  if(!entries.length)return null;
+  const latest=entries.map(e=>e.date).sort().pop();
+  return dayjs(today()).diff(dayjs(latest),'day');
+}
+
 function rYardChecklist(){
-  const items=DB.yard||[];
-  return`<div class="card">
-    <div class="chd">Queen Yard <span class="txs ml">${items.length?items.length+' task'+(items.length!==1?'s':''):''}</span></div>
-    ${items.length?items.map((t,i)=>`
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bdr)">
-        <input type="checkbox" style="width:20px;height:20px;accent-color:var(--g);cursor:pointer;flex-shrink:0"
-          onchange="tickYard(${i})">
-        <span style="font-size:14px;flex:1">${t.text}</span>
-      </div>`).join(''):'<p class="txs" style="margin-bottom:10px">No tasks yet — add something below.</p>'}
-    <div style="display:flex;gap:8px;margin-top:10px">
-      <input type="text" id="yard-input" placeholder="Add a task..." style="flex:1;padding:9px 12px;font-size:14px"
-        onkeydown="if(event.key==='Enter')addYardTask()">
-      <button class="btn bp bs" onclick="addYardTask()">Add</button>
-    </div>
+  const G=DB.grafts||[];
+  const tdStr=today();
+  // Collect one entry per active finisher hive with graft context
+  const finHiveMap={};
+  G.filter(g=>!gDone(g)||(g.finishers||[]).some(f=>!(f.out>0))).forEach(g=>{
+    (g.finishers||[]).forEach(f=>{
+      if(f.out>0)return;
+      const hid=f.hive_id;
+      if(!finHiveMap[hid])finHiveMap[hid]={f,g,checks:[]};
+      // Started check: from day 1 after graft until cells_received entered
+      const startedDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+      if(tdStr>=startedDate&&!(f.cells_received>0)){
+        finHiveMap[hid].checks.push({label:'Started check',color:'#1e40af',bg:'#dbeafe',bdr:'#93c5fd'});
+      }
+      // Capping check: from capping date until capped entered
+      const capDate=gCapDate(g);
+      if(tdStr>=capDate&&!(f.capped>0)&&g.protocol!=='autumn'){
+        finHiveMap[hid].checks.push({label:'Capping check',color:'#92400e',bg:'#fef3c7',bdr:'#fcd34d'});
+      }
+    });
+  });
+  const yardRows=Object.entries(finHiveMap).map(([hid,{f,g,checks}])=>{
+    const H=hById(hid);if(!H||H.retired)return null;
+    const dBU=daysSinceLog(H,['brood-up']);
+    const dSC=daysSinceLog(H,['swarm-check']);
+    const needsBU=dBU===null||dBU>=7;
+    const needsSC=dSC===null||dSC>=7;
+    const urgent=needsBU||needsSC||checks.length>0;
+    return{H,dBU,dSC,needsBU,needsSC,checks,urgent,score:(checks.length*2000)+(dBU??999)+(dSC??999)};
+  }).filter(Boolean).sort((a,b)=>b.score-a.score);
+  const urgentCount=yardRows.filter(r=>r.urgent).length;
+  const pill=(label,val,col,bg,bdr)=>`<div style="text-align:center;padding:4px 8px;border-radius:var(--rs);background:${bg};border:1.5px solid ${bdr};min-width:52px">
+    <div style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase">${label}</div>
+    <div style="font-size:12px;font-weight:800;color:${col}">${val}</div>
   </div>`;
-}
-function addYardTask(){
-  const inp=document.getElementById('yard-input');
-  const text=(inp?.value||'').trim();
-  if(!text)return;
-  if(!DB.yard)DB.yard=[];
-  DB.yard.push({id:uid(),text});
-  save();render();
-}
-function tickYard(i){
-  if(!DB.yard)return;
-  DB.yard.splice(i,1);
-  save();render();
+  const rowsHtml=yardRows.length?yardRows.map(r=>{
+    const buCol=r.needsBU?'#b91c1c':'var(--g)';
+    const scCol=r.needsSC?'#b91c1c':'var(--g)';
+    const buBg=r.needsBU?'#fef2f2':'var(--gl)';
+    const scBg=r.needsSC?'#fef2f2':'var(--gl)';
+    const buBdr=r.needsBU?'#fca5a5':'var(--gm)';
+    const scBdr=r.needsSC?'#fca5a5':'var(--gm)';
+    return`<div style="padding:10px 0;border-bottom:1px solid var(--bdr)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${r.checks.length?'7px':'0'}">
+        <div style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${r.urgent?'#ef4444':'var(--g)'}"></div>
+        <div style="flex:1;font-size:13px;font-weight:700">${r.H.name}${r.H.notes?`<span style="font-size:10px;font-weight:400;color:var(--b3);margin-left:6px;font-style:italic">${r.H.notes}</span>`:''}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
+          ${pill('Brood up',r.dBU===null?'never':r.dBU+'d ago',buCol,buBg,buBdr)}
+          ${pill('Swarm chk',r.dSC===null?'never':r.dSC+'d ago',scCol,scBg,scBdr)}
+        </div>
+      </div>
+      ${r.checks.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;padding-left:16px">
+        ${r.checks.map(c=>`<span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;background:${c.bg};border:1.5px solid ${c.bdr};color:${c.color}">${c.label}</span>`).join('')}
+      </div>`:''}
+    </div>`;
+  }).join(''):'<p class="tsm" style="color:var(--b3)">No active finishers.</p>';
+  return`<div class="card" style="border:2px solid ${urgentCount>0?'#ef4444':'var(--g)'}">
+    <div class="chd" style="color:${urgentCount>0?'#b91c1c':'var(--g)'}">
+      🐝 Yard Checklist
+      ${urgentCount>0?`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;font-weight:800;margin-left:8px">${urgentCount} need attention</span>`:`<span style="font-size:11px;color:var(--b3);font-weight:400;margin-left:8px">all up to date</span>`}
+    </div>
+    <div style="font-size:11px;color:var(--b3);margin-bottom:10px">Brood up &amp; swarm check alert after 7 days · time-sensitive checks shown when due</div>
+    ${rowsHtml}
+  </div>`;
 }
 
 // ── Scheduled Grafts ────────────────────────────────
