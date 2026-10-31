@@ -499,6 +499,216 @@ function closePanel(){document.getElementById('main-panel').classList.remove('op
 
 // DASHBOARD
 
+function moveGraftToHive(gid,fromHid,toHid){
+  if(!toHid)return;
+  const gr=gById(gid);if(!gr)return;
+  if(gr.method==='cloake'){
+    gr.cloake_hive_id=toHid;
+    if(gr.finishers&&gr.finishers[0])gr.finishers[0].hive_id=toHid;
+    stamp(gr);save();
+    document.getElementById('hive-map-popup')?.remove();
+    render();
+    toast('Moved to '+hiveLabel(hById(toHid)));
+    return;
+  }
+  let fi=(gr.finishers||[]).findIndex(f=>f.hive_id===fromHid);
+  if(fi<0&&(gr.finishers||[]).length===1)fi=0;
+  if(fi>=0){
+    gr.finishers[fi].hive_id=toHid;
+    stamp(gr);save();
+    document.getElementById('hive-map-popup')?.remove();
+    render();
+    toast('Moved to '+hiveLabel(hById(toHid)));
+    return;
+  }
+  toast('Could not find finisher record — try Record / update instead');
+}
+
+function rYardMap(){
+  const HIVE_POSITIONS=[
+    ['F10',248,42],['F11',292,42],
+    ['F8',148,52],['F9',192,52],['F13',258,142],['F12',302,142],
+    ['F5',68,150],['F18',112,150],['F15',210,204],['F14',254,204],
+    ['F1',98,212],['F4',142,212],
+    ['F16',210,258],['F17',254,258],['B1',316,258],
+    ['F7',30,270],['F6',74,270],
+    ['F3',112,342],['F2',156,342],['B3',214,342],['B2',258,342],['F19',316,342],['B4',360,342],
+  ];
+  const activeGrafts=DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
+  const todayStr=today();
+
+  const boxes=HIVE_POSITIONS.map(([name,x,y])=>{
+    const h=DB.hives.find(h=>h.name===name);
+    const isB=h?.type==='breeder';
+    const isS=h?.type==='starter';
+    const retired=h?.retired;
+    const batches=h?activeGrafts.filter(g=>{
+      if(g.method==='cloake'){const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;return fid===h.id;}
+      return (g.finishers||[]).some(f=>f.hive_id===h.id);
+    }):[];
+    const isPrepared=!isS&&!retired&&batches.length===0&&h?.slide_prepared;
+    let fill,stroke,textFill;
+    if(isPrepared){fill='#d1fae5';stroke='#34d399';textFill='#065f46';}
+    else if(batches.length===0||isB||isS||retired){
+      fill=retired?'#4a4a4a':isB?'#b08a10':isS?'#3b82f6':'#5a6e4a';
+      stroke=retired?'#666':isB?'#f0c84a':isS?'#93c5fd':'#8aaa7a';
+      textFill=retired?'#999':'#fff';
+    } else if(batches.length===1){
+      const gc=graftColour(batches[0]);fill=gc.bg;stroke=gc.border;textFill=gc.text;
+    } else {
+      const gc=graftColour(batches[0]);fill=gc.bg;stroke=gc.border;textFill=gc.text;
+    }
+    let stageLabel='';
+    if(isPrepared) stageLabel='Ready';
+    else if(batches.length&&!isB&&!isS&&!retired){
+      const g=batches[0];
+      const isCloake=g.method==='cloake';
+      const fr=isCloake?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===h.id);
+      const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+      const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
+      if(fr?.out!=null) stageLabel='Out';
+      else if((fr?.capped!=null)||gCapDate(g)<=todayStr) stageLabel='Capped';
+      else if(todayStr>=larvalDate||(fr?.cells_received>0)) stageLabel='Larval';
+      else if(todayStr>=slideOutDate) stageLabel='Slide↑';
+      else if(todayStr===g.date) stageLabel='Starting';
+      else stageLabel='Slide↓';
+    }
+    let defs='';let rectFill=fill;
+    if(batches.length>1){
+      const pid='mp'+name.replace(/\W/g,'');
+      const cols=batches.map(b=>graftColour(b).bg);
+      const sw=Math.ceil(38/batches.length);
+      const stripes=cols.map((c,i)=>`<rect x="${i*sw}" y="0" width="${sw}" height="26" fill="${c}"/>`).join('');
+      defs=`<defs><pattern id="${pid}" x="${x}" y="${y}" width="38" height="26" patternUnits="userSpaceOnUse">${stripes}</pattern></defs>`;
+      rectFill=`url(#${pid})`;
+    }
+    const onclick=h?`showHiveMapPopup('${h.id}')`:'' ;
+    const cursor=h?'pointer':'default';
+    const slideReady=!!h?.slide_prepared;
+    return defs+`<g onclick="${onclick}" style="cursor:${cursor}">
+      <rect x="${x}" y="${y}" width="38" height="26" rx="3" fill="${rectFill}" stroke="${stroke}" stroke-width="1.8"/>
+      <text x="${x+19}" y="${y+(stageLabel?9:13)}" fill="${textFill}" font-size="9" font-weight="800" text-anchor="middle" dominant-baseline="middle">${name}</text>
+      ${stageLabel?`<text x="${x+19}" y="${y+20}" fill="${textFill}" font-size="7" font-weight="700" text-anchor="middle" dominant-baseline="middle" opacity="0.85">${stageLabel}</text>`:''}
+      ${slideReady?`<circle cx="${x+33}" cy="${y+5}" r="4" fill="#34d399" stroke="#fff" stroke-width="1.2"/>`:''}
+    </g>`;
+  }).join('');
+
+  return`<div class="card" style="padding:10px 10px 6px">
+    <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Yard Map</div>
+    <svg viewBox="0 0 420 385" style="width:100%;border-radius:6px;overflow:hidden" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="420" height="385" fill="#3d4f2e" rx="6"/>
+      <rect x="8" y="8" width="404" height="369" fill="none" stroke="#4a5e38" stroke-width="1" rx="5" stroke-dasharray="3,4"/>
+      ${boxes}
+    </svg>
+  </div>`;
+}
+
+function showHiveMapPopup(hid){
+  const h=hById(hid);if(!h)return;
+  const isB=h.type==='breeder';
+  const isF=h.type==='finisher';
+  const todayStr=today();
+  const activeGrafts=DB.grafts.filter(g=>!g.scheduled&&!gDone(g));
+  const batches=activeGrafts.filter(g=>{
+    if(g.method==='cloake'){const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;return fid===hid;}
+    return (g.finishers||[]).some(f=>f.hive_id===hid);
+  });
+  const batchRows=batches.map(g=>{
+    const gc=graftColour(g);
+    const isCloake=g.method==='cloake';
+    const B=hById(g.breeder_id);
+    const fr=isCloake?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===hid);
+    const slideOutDate=dayjs(g.date).add(1,'day').format('YYYY-MM-DD');
+    const larvalDate=dayjs(g.date).add(2,'day').format('YYYY-MM-DD');
+    const outDate=gOutDate(g);
+    const cellsDue=(g.finishers||[]).reduce((a,f)=>a+Math.max(0,(f.capped||f.cells_received||0)-(f.out||0)),0);
+    const tGr=gGrafted(g),tOut2=gOut(g);
+    const wknd=isWknd(outDate);
+    let stg,stgBg,stgTxt;
+    if(fr?.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
+    else if((fr?.capped!=null)||gCapDate(g)<=todayStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+    else if(todayStr>=larvalDate||(fr?.cells_received>0)){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+    else if(todayStr>=slideOutDate){stg='Slide out';stgBg='#fef3c7';stgTxt='#92400e';}
+    else if(todayStr===g.date){stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
+    else{stg='Slide in';stgBg='#ede9fe';stgTxt='#6b21a8';}
+    const canSlideIn=isCloake&&!g.slide_in_done&&fr?.out==null;
+    const canSlideOut=isCloake&&g.slide_in_done&&!g.slide_out_done&&fr?.out==null;
+    return`<div style="border:1.5px solid ${gc.border};border-radius:10px;overflow:hidden;margin-bottom:10px">
+      <div style="background:${gc.bg};padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+          <span class="chip" style="background:${gc.border};color:${gc.text};font-weight:800">${gFinisherLabel(g)}</span>
+          <strong style="font-size:13px">${fmtF(g.date)}</strong>
+          <span class="chip ${isCloake?'':'cstd'}" style="${isCloake?'background:#ede9fe;color:#6b21a8':''}">
+            ${isCloake?'Cloake':'Standard'}
+          </span>
+          ${B?`<span class="chip cB" style="font-size:10px">${B.name}</span>`:''}
+          <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:${stgBg};color:${stgTxt};margin-left:auto">${stg}</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:4px">
+          <span style="font-size:9px;font-weight:600;color:var(--b3);text-transform:uppercase">Out</span>
+          <span style="font-size:15px;font-weight:800;color:${wknd?'var(--red)':'var(--g)'}">${relDay(outDate)||dayN(outDate)} ${fmt(outDate)}</span>
+          ${wknd?'<span style="font-size:9px;font-weight:700;color:var(--red)">Wknd</span>':''}
+          ${cellsDue>0?`<span style="margin-left:auto;font-size:18px;font-weight:800;color:var(--g)">${cellsDue} <span style="font-size:9px;color:var(--b3);font-weight:600">cells</span></span>`:''}
+        </div>
+      </div>
+      <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--wht)">
+        <div style="display:flex;gap:12px;flex:1">
+          <div style="text-align:center"><div style="font-size:16px;font-weight:800">${tGr||'--'}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Grafted</div></div>
+          ${fr?.cells_received!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800">${fr.cells_received}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">In finisher</div></div>`:''}
+          ${fr?.capped!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800">${fr.capped}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Capped</div></div>`:''}
+          ${fr?.out!=null?`<div style="text-align:center"><div style="font-size:16px;font-weight:800;color:var(--g)">${fr.out}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Out</div></div>`:''}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          ${canSlideIn?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_in_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in</button>`:''}
+          ${canSlideOut?`<button class="btn bp bx" style="font-size:11px" onclick="updGraftFlag('${g.id}','slide_out_done',true);save();document.getElementById('hive-map-popup').remove();render()">🔳 Slide out</button>`:''}
+          <select style="padding:6px 8px;font-size:12px;font-weight:700;border:1.5px solid var(--bdr);border-radius:var(--rs);background:var(--wht);max-width:120px" onchange="moveGraftToHive('${g.id}','${hid}',this.value)">
+            <option value="">Move to…</option>
+            ${numSort(hByType('finisher')).filter(fh=>fh.id!==hid&&!fh.retired).map(fh=>`<option value="${fh.id}">${fh.name}</option>`).join('')}
+          </select>
+          <button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('rec','${g.id}')">Record / update →</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  const cc=isB?'cB':h.type==='starter'?'cS':'cF';
+  const m=document.createElement('div');
+  m.id='hive-map-popup';
+  m.style.cssText='position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center';
+  m.innerHTML=`<div style="background:var(--wht);border-radius:16px 16px 0 0;padding:20px 16px 36px;width:100%;max-width:680px;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <span class="chip ${cc}">${h.name}</span>
+      <span style="font-size:15px;font-weight:700">${h.name}</span>
+      ${h.queen_status&&h.queen_status!=='unknown'?`<span style="font-size:11px;color:var(--b3)">${h.queen_status}</span>`:''}
+      <button onclick="document.getElementById('hive-map-popup').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--b3)">×</button>
+    </div>
+    ${batches.length?`<div style="margin-bottom:12px">${batchRows}</div>`:'<p class="tsm" style="margin-bottom:12px;color:var(--b3)">No active batches</p>'}
+    ${(()=>{
+      if(h.retired) return '';
+      const anyCapped=batches.some(g=>{
+        const fr=(g.finishers||[]).find(f=>f.hive_id===hid)||(g.finishers||[])[0];
+        return (fr?.capped!=null)||gCapDate(g)<=todayStr||fr?.out!=null;
+      });
+      if(!batches.length||anyCapped||h.slide_prepared){
+        return`<div style="padding:10px 0 14px;border-bottom:1px solid var(--bdr);margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--b3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Next graft prep</div>
+          ${h.slide_prepared?`<div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px">🟩</span>
+            <span style="font-size:12px;font-weight:600;color:#065f46">Slide in — ${h.slide_prepared}</span>
+            <button class="btn bo" style="font-size:11px;margin-left:auto" onclick="const hh=hById('${hid}');hh.slide_prepared=null;stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">Undo</button>
+          </div>`:`<button class="btn bp bs" onclick="const hh=hById('${hid}');hh.slide_prepared='${todayStr}';stamp(hh);save();document.getElementById('hive-map-popup').remove();render()">🔲 Slide in done</button>`}
+        </div>`;
+      }
+      return '';
+    })()}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn bo bs" onclick="document.getElementById('hive-map-popup').remove();openPanel('hive','${hid}')">Hive details</button>
+      ${isF&&batches.length===0?`<button class="btn bp bs" onclick="document.getElementById('hive-map-popup').remove();go('graft')">+ New graft</button>`:''}
+    </div>
+  </div>`;
+  m.addEventListener('click',e=>{if(e.target===m)m.remove();});
+  document.body.appendChild(m);
+}
+
 // ── Yard Checklist ──────────────────────────────────
 function rYardChecklist(){
   const items=DB.yard||[];
@@ -739,6 +949,7 @@ function rDash(){
         </div>
       </div>`:''}
     </div>
+    ${rYardMap()}
     ${rYardChecklist()}
     ${rScheduledGrafts()}
     <div class="card">
