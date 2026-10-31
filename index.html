@@ -229,6 +229,7 @@ textarea{resize:vertical;min-height:56px;}
 <nav>
   <div class="logo">QCT</div>
   <button class="active" onclick="go('dash')">Home</button>
+  <button onclick="go('yard')">Yard</button>
   <button onclick="go('graft')">Graft</button>
   <button onclick="go('hives')">Hives</button>
   <button onclick="go('cal')">Calendar</button>
@@ -240,6 +241,7 @@ textarea{resize:vertical;min-height:56px;}
 <main id="app"></main>
 <div class="bbar"><div class="bbar-inner">
   <button class="bbt active" onclick="go('dash')">H<br>Home</button>
+  <button class="bbt" onclick="go('yard')">🐝<br>Yard</button>
   <button class="bbt" onclick="go('graft')">+<br>Graft</button>
   <button class="bbt" onclick="go('hives')">B<br>Hives</button>
   <button class="bbt" onclick="go('cal')">C<br>Cal</button>
@@ -459,7 +461,7 @@ function gDone(g){return gOutDate(g)<today();}
 function stamp(g){g.updated_at=new Date().toISOString();}
 
 // NAV
-const PAGES=['dash','graft','hives','cal','stats','settings'];
+const PAGES=['dash','yard','graft','hives','cal','stats','settings'];
 function go(p){
   pg=p;
   document.querySelectorAll('nav button').forEach((b,i)=>b.classList.toggle('active',PAGES[i]===p));
@@ -482,6 +484,7 @@ function centreCalToday(retries){
 function render(){
   const el=document.getElementById('app');
   if(pg==='dash')el.innerHTML=rDash();
+  if(pg==='yard')el.innerHTML=rYard();
   if(pg==='graft')el.innerHTML=rGraft();
   if(pg==='hives')el.innerHTML=rHives();
   if(pg==='cal')el.innerHTML=rCal();
@@ -993,14 +996,19 @@ function rDash(){
         </div>
       </div>`:''}
     </div>
-    ${rYardMap()}
-    ${rYardChecklist()}
     ${rScheduledGrafts()}
     <div class="card">
       <div class="chd">Apiary <span class="txs">${bC}B · ${sC}S · ${fC}F</span>
         <span class="ml"><button class="btn bg bx" onclick="go('hives')">Manage</button></span></div>
       ${rApiary()}
     </div>`;
+}
+
+function rYard(){
+  return`<div style="padding:4px 0">
+    ${rYardMap()}
+    ${rYardChecklist()}
+  </div>`;
 }
 
 function rApiary(){
