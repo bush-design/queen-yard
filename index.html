@@ -1627,6 +1627,7 @@ function renderRecPanel(id){
     </div>`).join('');
 
   document.getElementById('pbody').innerHTML=`
+    <details style="margin-bottom:8px"><summary style="font-size:12px;color:var(--b3);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;padding:6px 2px"><span>▸</span> Summary &amp; allocation</summary><div style="margin-top:8px">
     <div class="card">
       <div class="chd">Summary</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
@@ -1684,15 +1685,9 @@ function renderRecPanel(id){
         </div>
       </div>`;
     })()}
-    <div class="card" style="padding:0;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:8px;padding:18px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.chev').textContent=this.nextElementSibling.style.display==='none'?'›':'⌄'">
-        <span style="font-size:15px;font-weight:700">Finisher Records</span>
-        <span class="txs ml">${tGr} grafted · ${tIn} assigned</span>
-        <span class="chev" style="color:var(--b3);font-size:18px">›</span>
-      </div>
-      <div style="display:none;padding:0 18px 18px">
-        ${(g.finishers||[]).length?finRows:'<p class="tsm">No finishers assigned yet.</p>'}
-      </div>
+    <div class="card">
+      <div class="chd">Finisher Records <span class="txs ml">${tGr} grafted · ${tIn} assigned</span></div>
+      ${(g.finishers||[]).length?finRows:'<p class="tsm">No finishers assigned yet.</p>'}
     </div>
     <div class="card">
       <div class="chd">Yard Allocation <span class="txs ml">where did the cells go?</span></div>
@@ -1709,7 +1704,8 @@ function renderRecPanel(id){
         ${yardRows}
         <button class="btn badd bx" style="width:100%" onclick="addYard2('${id}')">+ Add yard allocation</button>`
         :`<p class="tsm" style="color:var(--b3)">No finishers due out yet. This section unlocks once a finisher's out date arrives or you mark cells as out.</p>`}
-    </div>`;
+    </div>
+    </div></details>`;
 }
 
 function saveAssign(gid){
@@ -1910,24 +1906,17 @@ function renderHivePanel(id){
   // --- Quick log buttons (one-tap, no confirm needed) ---
   const quickLogHtml=isF?`<div class="card">
     <div class="chd">Log visit</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       ${LOG_TYPES.filter(t=>t.v==='brood-up'||t.v==='swarm-check').map(t=>`
         <button class="btn bp bb" style="padding:14px;font-size:14px;font-weight:700;line-height:1.3" onclick="quickLog('${id}','${t.v}')">
           ${t.v==='brood-up'?'🍯':'🐝'} ${t.l}
           ${t.v==='brood-up'&&dBU!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.7">Last ${dBU}d ago</div>`:t.v==='swarm-check'&&dSC!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.7">Last ${dSC}d ago</div>`:''}
         </button>`).join('')}
     </div>
-    <details style="margin-top:4px">
-      <summary style="font-size:12px;color:var(--b3);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
-        <span>▸</span> More options / add note
-      </summary>
-      <div style="margin-top:10px">
-        <div class="field"><label>Date</label><input type="date" id="ld" value="${tdStr}"></div>
-        <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
-        <div class="field mt8"><label>Comment</label><textarea id="ln" placeholder="Notes..."></textarea></div>
-        <button class="btn bp bb mt8" onclick="addLog('${id}')">Save entry</button>
-      </div>
-    </details>
+    <div class="field"><label>Date</label><input type="date" id="ld" value="${tdStr}"></div>
+    <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
+    <div class="field mt8"><label>Comment</label><textarea id="ln" placeholder="Notes..."></textarea></div>
+    <button class="btn bp bb mt8" onclick="addLog('${id}')">Save entry</button>
   </div>`:`<div class="card"><div class="chd">Log Entry</div>
     <div class="field"><label>Date</label><input type="date" id="ld" value="${tdStr}"></div>
     <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
