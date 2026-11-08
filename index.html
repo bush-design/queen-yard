@@ -1902,15 +1902,20 @@ function renderHivePanel(id){
   }
 
   // --- Quick log buttons (one-tap, no confirm needed) ---
+  const buOverdue=needsBU;const scOverdue=needsSC;
   const quickLogHtml=isF?`<div class="card">
     <div class="chd">Log visit</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-      ${LOG_TYPES.filter(t=>t.v==='brood-up'||t.v==='swarm-check').map(t=>`
-        <button class="btn bp bb" style="padding:14px;font-size:14px;font-weight:700;line-height:1.3" onclick="quickLog('${id}','${t.v}')">
-          ${t.v==='brood-up'?'🍯':'🐝'} ${t.l}
-          ${t.v==='brood-up'&&dBU!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.7">Last ${dBU}d ago</div>`:t.v==='swarm-check'&&dSC!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.7">Last ${dSC}d ago</div>`:''}
-        </button>`).join('')}
+      <button style="padding:14px;font-size:14px;font-weight:700;line-height:1.3;border-radius:var(--rs);border:none;cursor:pointer;background:${buOverdue?'#dc2626':'var(--g)'};color:#fff" onclick="quickLog('${id}','brood-up')">
+        🍯 Brood up
+        ${dBU!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">Last ${dBU}d ago</div>`:'<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">never done</div>'}
+      </button>
+      <button style="padding:14px;font-size:14px;font-weight:700;line-height:1.3;border-radius:var(--rs);border:none;cursor:pointer;background:${scOverdue?'#dc2626':'var(--g)'};color:#fff" onclick="quickLog('${id}','swarm-check')">
+        🐝 Swarm check
+        ${dSC!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">Last ${dSC}d ago</div>`:'<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">never done</div>'}
+      </button>
     </div>
+    <div id="ql-undo-${id}" style="display:none;margin-bottom:10px"></div>
     <div class="field"><label>Date</label><input type="date" id="ld" value="${tdStr}"></div>
     <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
     <div class="field mt8"><label>Comment</label><textarea id="ln" placeholder="Notes..."></textarea></div>
@@ -2054,11 +2059,28 @@ function addLog(id){
 function quickLog(id,type){
   const h=hById(id);if(!h)return;
   if(!h.log)h.log=[];
-  h.log.push({id:uid(),date:today(),types:[type],note:''});
+  const eid=uid();
+  h.log.push({id:eid,date:today(),types:[type],note:''});
   h.updated_at=new Date().toISOString();
   save();
   const lt=LOG_TYPES.find(x=>x.v===type);
-  toast((lt?lt.l:type)+' logged for '+h.name);
+  renderHivePanel(id);
+  // Show undo button
+  const undoEl=document.getElementById('ql-undo-'+id);
+  if(undoEl){
+    undoEl.style.display='block';
+    undoEl.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fef3c7;border:1.5px solid #fcd34d;border-radius:var(--rs)">
+      <span style="font-size:12px;font-weight:600;color:#92400e;flex:1">✓ ${lt?lt.l:type} logged</span>
+      <button class="btn bo bx" style="font-size:11px" onclick="undoQuickLog('${id}','${eid}')">Undo</button>
+    </div>`;
+  }
+}
+function undoQuickLog(id,eid){
+  const h=hById(id);if(!h)return;
+  h.log=(h.log||[]).filter(e=>e.id!==eid);
+  h.updated_at=new Date().toISOString();
+  save();
+  toast('Undone');
   renderHivePanel(id);
 }
 
