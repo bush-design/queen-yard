@@ -1902,17 +1902,16 @@ function renderHivePanel(id){
   }
 
   // --- Quick log buttons (one-tap, no confirm needed) ---
-  const buOverdue=needsBU;const scOverdue=needsSC;
   const quickLogHtml=isF?`<div class="card">
     <div class="chd">Log visit</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-      <button style="padding:14px;font-size:14px;font-weight:700;line-height:1.3;border-radius:var(--rs);border:none;cursor:pointer;background:${buOverdue?'#dc2626':'var(--g)'};color:#fff" onclick="quickLog('${id}','brood-up')">
-        🍯 Brood up
-        ${dBU!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">Last ${dBU}d ago</div>`:'<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">never done</div>'}
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+      <button style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;font-size:15px;font-weight:700;border-radius:var(--rs);border:none;cursor:pointer;background:${needsBU?'#dc2626':'var(--g)'};color:#fff;width:100%;text-align:left" onclick="quickLog('${id}','brood-up')">
+        <span>🍯 Brood up</span>
+        <span style="font-size:11px;font-weight:500;opacity:.9">${dBU!==null?'Last '+dBU+'d ago':'Never done'}</span>
       </button>
-      <button style="padding:14px;font-size:14px;font-weight:700;line-height:1.3;border-radius:var(--rs);border:none;cursor:pointer;background:${scOverdue?'#dc2626':'var(--g)'};color:#fff" onclick="quickLog('${id}','swarm-check')">
-        🐝 Swarm check
-        ${dSC!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">Last ${dSC}d ago</div>`:'<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.85">never done</div>'}
+      <button style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;font-size:15px;font-weight:700;border-radius:var(--rs);border:none;cursor:pointer;background:${needsSC?'#dc2626':'var(--g)'};color:#fff;width:100%;text-align:left" onclick="quickLog('${id}','swarm-check')">
+        <span>🐝 Swarm check</span>
+        <span style="font-size:11px;font-weight:500;opacity:.9">${dSC!==null?'Last '+dSC+'d ago':'Never done'}</span>
       </button>
     </div>
     <div id="ql-undo-${id}" style="display:none;margin-bottom:10px"></div>
