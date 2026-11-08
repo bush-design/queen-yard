@@ -585,7 +585,7 @@ function rYardMap(){
       defs=`<defs><pattern id="${pid}" x="${x}" y="${y}" width="38" height="26" patternUnits="userSpaceOnUse">${stripes}</pattern></defs>`;
       rectFill=`url(#${pid})`;
     }
-    const onclick=h?`showHiveMapPopup('${h.id}')`:'' ;
+    const onclick=h?`openHivePage('${h.id}')`:'' ;
     const cursor=h?'pointer':'default';
     const slideReady=!!h?.slide_prepared;
     return defs+`<g onclick="${onclick}" style="cursor:${cursor}">
@@ -767,7 +767,7 @@ function rYardChecklist(){
     return`<div style="padding:10px 0;border-bottom:1px solid var(--bdr)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:${r.checks.length?'7px':'0'}">
         <div style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${r.urgent?'#ef4444':'var(--g)'}"></div>
-        <div style="flex:1;font-size:13px;font-weight:700">${r.H.name}${r.H.notes?`<span style="font-size:10px;font-weight:400;color:var(--b3);margin-left:6px;font-style:italic">${r.H.notes}</span>`:''}</div>
+        <div style="flex:1;font-size:13px;font-weight:700;cursor:pointer;text-decoration:underline;text-decoration-color:var(--bdr)" onclick="openHivePage('${r.H.id}')">${r.H.name}${r.H.notes?`<span style="font-size:10px;font-weight:400;color:var(--b3);margin-left:6px;font-style:italic;text-decoration:none">${r.H.notes}</span>`:''}</div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
           ${pill('Brood up',r.dBU===null?'never':r.dBU+'d ago',buCol,buBg,buBdr)}
           ${pill('Swarm chk',r.dSC===null?'never':r.dSC+'d ago',scCol,scBg,scBdr)}
@@ -1830,46 +1830,149 @@ function doAddHive(type,btn){
   if(pg==='hives')render();else go('hives');
 }
 
+function openHivePage(id){
+  openPanel('hive',id);
+}
+
 function renderHivePanel(id){
   const h=hById(id);if(!h)return;
   const cc=h.type==='breeder'?'cB':h.type==='starter'?'cS':'cF';
   const retired=!!h.retired;
+  const tdStr=today();
   document.getElementById('ptitle').innerHTML=`${h.name} <span class="chip ${cc}">${h.type}</span>${retired?'<span class="chip" style="background:#f3f4f6;color:#6b7280;margin-left:6px">Retired</span>':''}`;
   document.getElementById('pactions').innerHTML=`<button class="btn bd bx" onclick="delHive('${id}')">Delete</button>`;
-  const logHtml=(h.log||[]).slice().reverse().map(e=>{const types=(e.types||[e.type].filter(Boolean));const labels=types.map(t=>{const lt=LOG_TYPES.find(x=>x.v===t);return lt?lt.l:t;});return`<div class="log-entry"><div style="font-size:10px;color:var(--b3);font-weight:600">${fmtF(e.date)}</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin:3px 0">${labels.map(l=>`<span class="chip cok" style="font-size:9px;padding:2px 6px">${l}</span>`).join('')}</div>${e.note?`<div class="tsm">${e.note}</div>`:''}</div>`;}).join('')||'<p class="tsm">No entries.</p>';
+
+  // --- Alert banner ---
+  const dBU=daysSinceLog(h,['brood-up']);
+  const dSC=daysSinceLog(h,['swarm-check']);
+  const needsBU=dBU===null||dBU>=7;
+  const needsSC=dSC===null||dSC>=7;
+  const isF=h.type==='finisher';
+  let alertHtml='';
+  if(isF&&(needsBU||needsSC)){
+    const items=[];
+    if(needsBU)items.push(`<span style="font-weight:700">Brood up</span> — ${dBU===null?'never done':'last '+dBU+'d ago'}`);
+    if(needsSC)items.push(`<span style="font-weight:700">Swarm check</span> — ${dSC===null?'never done':'last '+dSC+'d ago'}`);
+    alertHtml=`<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+      <span style="font-size:18px">⚠️</span>
+      <div style="font-size:13px;color:#b91c1c">${items.join(' · ')}</div>
+    </div>`;
+  }
+
+  // --- Active grafts for this hive ---
+  const activeGrafts=(DB.grafts||[]).filter(g=>!g.scheduled);
+  const batches=activeGrafts.filter(g=>{
+    if(g.method==='cloake'){const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;return fid===id;}
+    return (g.finishers||[]).some(f=>f.hive_id===id);
+  });
+  let batchHtml='';
+  if(batches.length){
+    batchHtml=`<div class="card" style="padding:12px">
+      <div class="chd">Active batches</div>
+      ${batches.map(g=>{
+        const gc=graftColour(g);
+        const fr=(g.method==='cloake'?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===id))||{};
+        const outDate=gOutDate(g);
+        const wknd=isWknd(outDate);
+        const cellsDue=Math.max(0,(fr.capped||fr.cells_received||0)-(fr.out||0));
+        // Stage pills
+        let stg='',stgBg='',stgTxt='';
+        if(fr.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
+        else if(fr.capped!=null||gCapDate(g)<=tdStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+        else if(fr.cells_received>0||dayjs(tdStr).diff(dayjs(g.date),'day')>=2){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+        else{stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
+        return`<div style="border:1.5px solid ${gc.border};border-radius:10px;overflow:hidden;margin-bottom:8px">
+          <div style="background:${gc.bg};padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="chip" style="background:${gc.border};color:${gc.text};font-weight:800">${gFinisherLabel(g)}</span>
+            <strong style="font-size:13px">${fmtF(g.date)}</strong>
+            <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${stgBg};color:${stgTxt};font-weight:700">${stg}</span>
+            <span style="margin-left:auto;font-size:11px;color:${wknd?'var(--red)':'var(--b2)'};font-weight:700">Out ${relDay(outDate)||dayN(outDate)} ${fmt(outDate)}${wknd?' 🏖':''}</span>
+          </div>
+          <div style="background:var(--wht);padding:10px 12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+            <div style="text-align:center"><div style="font-size:20px;font-weight:800">${gGrafted(g)||'—'}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Grafted</div></div>
+            ${fr.cells_received!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800">${fr.cells_received}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Started</div></div>`:''}
+            ${fr.capped!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800">${fr.capped}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Capped</div></div>`:''}
+            ${fr.out!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:var(--g)">${fr.out}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Out</div></div>`:''}
+            ${cellsDue>0&&fr.out==null?`<div style="margin-left:auto;text-align:center"><div style="font-size:20px;font-weight:800;color:var(--g)">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Cells due</div></div>`:''}
+            <button class="btn bp bx" style="margin-left:auto;font-size:11px" onclick="closePanel();openPanel('rec','${g.id}')">Record / update →</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  // --- Quick log buttons (one-tap, no confirm needed) ---
+  const quickLogHtml=isF?`<div class="card">
+    <div class="chd">Log visit</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      ${LOG_TYPES.filter(t=>t.v==='brood-up'||t.v==='swarm-check').map(t=>`
+        <button class="btn bp bb" style="padding:14px;font-size:14px;font-weight:700;line-height:1.3" onclick="quickLog('${id}','${t.v}')">
+          ${t.v==='brood-up'?'🍯':'🐝'} ${t.l}
+          ${t.v==='brood-up'&&dBU!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.7">Last ${dBU}d ago</div>`:t.v==='swarm-check'&&dSC!==null?`<div style="font-size:10px;font-weight:400;margin-top:2px;opacity:.7">Last ${dSC}d ago</div>`:''}
+        </button>`).join('')}
+    </div>
+    <details style="margin-top:4px">
+      <summary style="font-size:12px;color:var(--b3);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+        <span>▸</span> More options / add note
+      </summary>
+      <div style="margin-top:10px">
+        <div class="field"><label>Date</label><input type="date" id="ld" value="${tdStr}"></div>
+        <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
+        <div class="field mt8"><label>Comment</label><textarea id="ln" placeholder="Notes..."></textarea></div>
+        <button class="btn bp bb mt8" onclick="addLog('${id}')">Save entry</button>
+      </div>
+    </details>
+  </div>`:`<div class="card"><div class="chd">Log Entry</div>
+    <div class="field"><label>Date</label><input type="date" id="ld" value="${tdStr}"></div>
+    <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
+    <div class="field mt8"><label>Comment</label><textarea id="ln" placeholder="Notes..."></textarea></div>
+    <button class="btn bp bb mt8" onclick="addLog('${id}')">Add entry</button>
+  </div>`;
+
+  // --- Log history ---
+  const logHtml=(h.log||[]).slice().reverse().map(e=>{
+    const types=(e.types||[e.type].filter(Boolean));
+    const labels=types.map(t=>{const lt=LOG_TYPES.find(x=>x.v===t);return lt?lt.l:t;});
+    return`<div class="log-entry"><div style="font-size:10px;color:var(--b3);font-weight:600">${fmtF(e.date)}</div><div style="display:flex;gap:4px;flex-wrap:wrap;margin:3px 0">${labels.map(l=>`<span class="chip cok" style="font-size:9px;padding:2px 6px">${l}</span>`).join('')}</div>${e.note?`<div class="tsm">${e.note}</div>`:''}</div>`;
+  }).join('')||'<p class="tsm">No entries.</p>';
+
   document.getElementById('pbody').innerHTML=`
+    ${alertHtml}
+    ${batchHtml}
+    ${quickLogHtml}
+    <div class="card"><div class="chd">Log <span class="txs ml">${(h.log||[]).length} entries</span></div>${logHtml}</div>
     ${retired?`<div class="card" style="border:1.5px solid #d1d5db;background:#f9fafb">
       <div class="chd" style="color:#6b7280">Retired</div>
       <p class="tsm">${h.retired_date?fmtF(h.retired_date)+' — ':''}${h.retired_reason||'No reason given'}</p>
       <button class="btn bo bs mt8" onclick="unretireHive('${id}')">Reactivate hive</button>
     </div>`:''}
-    <div class="card"><div class="chd">Settings</div>
-      <div class="r2">
-        <div class="field"><label>Name</label><input type="text" value="${h.name}" onchange="updH('${id}','name',this.value)"></div>
-        <div class="field"><label>Strength (1-5)</label><input type="number" min="1" max="5" value="${h.strength||3}" onchange="updH('${id}','strength',+this.value)"></div>
+    <details style="margin-top:8px">
+      <summary style="font-size:12px;color:var(--b3);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;padding:4px 0">
+        <span>▸</span> Hive settings &amp; retire
+      </summary>
+      <div style="margin-top:8px">
+        <div class="card"><div class="chd">Settings</div>
+          <div class="r2">
+            <div class="field"><label>Name</label><input type="text" value="${h.name}" onchange="updH('${id}','name',this.value)"></div>
+            <div class="field"><label>Strength (1-5)</label><input type="number" min="1" max="5" value="${h.strength||3}" onchange="updH('${id}','strength',+this.value)"></div>
+          </div>
+          <div class="field mt12"><label>Queen Status</label>
+            <select onchange="updH('${id}','queen_status',this.value)">
+              <option value="queenright" ${h.queen_status==='queenright'?'selected':''}>Queenright</option>
+              <option value="queenless" ${h.queen_status==='queenless'?'selected':''}>Queenless</option>
+              <option value="virgin" ${h.queen_status==='virgin'?'selected':''}>Virgin queen</option>
+              <option value="unknown" ${h.queen_status==='unknown'?'selected':''}>Unknown</option>
+            </select></div>
+          <div class="field mt12"><label>Notes</label><textarea onchange="updH('${id}','notes',this.value)">${h.notes||''}</textarea></div>
+        </div>
+        ${!retired?`<div class="card">
+          <div class="chd">Retire this hive</div>
+          <p class="tsm" style="margin-bottom:8px">Stops it appearing as available for new grafts/assignments, but keeps its history.</p>
+          <div class="field"><label>Reason</label><textarea id="retire-reason" placeholder="e.g. drone layer, dead out, combined with another hive..."></textarea></div>
+          <button class="btn bd bb mt8" onclick="retireHive('${id}')">Retire hive</button>
+        </div>`:''}
       </div>
-      <div class="field mt12"><label>Queen Status</label>
-        <select onchange="updH('${id}','queen_status',this.value)">
-          <option value="queenright" ${h.queen_status==='queenright'?'selected':''}>Queenright</option>
-          <option value="queenless" ${h.queen_status==='queenless'?'selected':''}>Queenless</option>
-          <option value="virgin" ${h.queen_status==='virgin'?'selected':''}>Virgin queen</option>
-          <option value="unknown" ${h.queen_status==='unknown'?'selected':''}>Unknown</option>
-        </select></div>
-      <div class="field mt12"><label>Notes</label><textarea onchange="updH('${id}','notes',this.value)">${h.notes||''}</textarea></div>
-    </div>
-    ${!retired?`<div class="card">
-      <div class="chd">Retire this hive</div>
-      <p class="tsm" style="margin-bottom:8px">Stops it appearing as available for new grafts/assignments, but keeps its history.</p>
-      <div class="field"><label>Reason</label><textarea id="retire-reason" placeholder="e.g. drone layer, dead out, combined with another hive..."></textarea></div>
-      <button class="btn bd bb mt8" onclick="retireHive('${id}')">Retire hive</button>
-    </div>`:''}
-    <div class="card"><div class="chd">Log Entry</div>
-      <div class="field"><label>Date</label><input type="date" id="ld" value="${today()}"></div>
-      <div class="field mt8"><label>Actions</label><div class="lch-grid">${LOG_TYPES.map(t=>`<label class="lch"><input type="checkbox" name="lt-${id}" value="${t.v}"><span>${t.l}</span></label>`).join('')}</div></div>
-      <div class="field mt8"><label>Comment</label><textarea id="ln" placeholder="Notes..."></textarea></div>
-      <button class="btn bp bb mt8" onclick="addLog('${id}')">Add entry</button>
-    </div>
-    <div class="card"><div class="chd">Log <span class="txs ml">${(h.log||[]).length} entries</span></div>${logHtml}</div>`;
+    </details>`;
 }
 
 function retireHive(id){
@@ -1954,6 +2057,16 @@ function addLog(id){
   if(!types.length&&!note){toast('Select action or add note');return;}
   if(!h.log)h.log=[];h.log.push({id:uid(),date:document.getElementById('ld').value,types,note});
   h.updated_at=new Date().toISOString();save();toast('Entry saved');renderHivePanel(id);
+}
+function quickLog(id,type){
+  const h=hById(id);if(!h)return;
+  if(!h.log)h.log=[];
+  h.log.push({id:uid(),date:today(),types:[type],note:''});
+  h.updated_at=new Date().toISOString();
+  save();
+  const lt=LOG_TYPES.find(x=>x.v===type);
+  toast((lt?lt.l:type)+' logged for '+h.name);
+  renderHivePanel(id);
 }
 
 // BULK LOG
