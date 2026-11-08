@@ -1865,39 +1865,45 @@ function renderHivePanel(id){
     if(g.method==='cloake'){const fid=g.cloake_hive_id||(g.finishers||[])[0]?.hive_id;return fid===id;}
     return (g.finishers||[]).some(f=>f.hive_id===id);
   });
+  const renderBatch=g=>{
+    const gc=graftColour(g);
+    const fr=(g.method==='cloake'?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===id))||{};
+    const outDate=gOutDate(g);
+    const wknd=isWknd(outDate);
+    const cellsDue=Math.max(0,(fr.capped||fr.cells_received||0)-(fr.out||0));
+    let stg='',stgBg='',stgTxt='';
+    if(fr.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
+    else if(fr.capped!=null||gCapDate(g)<=tdStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
+    else if(fr.cells_received>0||dayjs(tdStr).diff(dayjs(g.date),'day')>=2){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
+    else{stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
+    return`<div style="border:1.5px solid ${gc.border};border-radius:10px;overflow:hidden;margin-bottom:8px">
+      <div style="background:${gc.bg};padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="chip" style="background:${gc.border};color:${gc.text};font-weight:800">${gFinisherLabel(g)}</span>
+        <strong style="font-size:13px">${fmtF(g.date)}</strong>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${stgBg};color:${stgTxt};font-weight:700">${stg}</span>
+        <span style="margin-left:auto;font-size:11px;color:${wknd?'var(--red)':'var(--b2)'};font-weight:700">Out ${relDay(outDate)||dayN(outDate)} ${fmt(outDate)}${wknd?' 🏖':''}</span>
+      </div>
+      <div style="background:var(--wht);padding:10px 12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div style="text-align:center"><div style="font-size:20px;font-weight:800">${gGrafted(g)||'—'}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Grafted</div></div>
+        ${fr.cells_received!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800">${fr.cells_received}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Started</div></div>`:''}
+        ${fr.capped!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800">${fr.capped}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Capped</div></div>`:''}
+        ${fr.out!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:var(--g)">${fr.out}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Out</div></div>`:''}
+        ${cellsDue>0&&fr.out==null?`<div style="margin-left:auto;text-align:center"><div style="font-size:20px;font-weight:800;color:var(--g)">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Cells due</div></div>`:''}
+        <button class="btn bp bx" style="margin-left:auto;font-size:11px" onclick="closePanel();openPanel('rec','${g.id}')">Record / update →</button>
+      </div>
+    </div>`;
+  };
+  const activeBatches=batches.filter(g=>{const fr=(g.method==='cloake'?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===id))||{};return fr.out==null;});
+  const pastBatches=batches.filter(g=>{const fr=(g.method==='cloake'?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===id))||{};return fr.out!=null;});
+  // Also include all done grafts (gDone) for past
+  const allGrafts=(DB.grafts||[]).filter(g=>!g.scheduled);
+  const doneBatches=allGrafts.filter(g=>gDone(g)&&g.id!==batches.find(x=>x.id===g.id)?.id&&((g.method==='cloake'?(g.finishers||[])[0]?.hive_id==id:(g.finishers||[]).some(f=>f.hive_id===id))));
+  const allPast=[...pastBatches,...doneBatches].sort((a,b)=>b.date.localeCompare(a.date));
   let batchHtml='';
-  if(batches.length){
+  if(activeBatches.length||allPast.length){
     batchHtml=`<div class="card" style="padding:12px">
-      <div class="chd">Active batches</div>
-      ${batches.map(g=>{
-        const gc=graftColour(g);
-        const fr=(g.method==='cloake'?(g.finishers||[])[0]:(g.finishers||[]).find(f=>f.hive_id===id))||{};
-        const outDate=gOutDate(g);
-        const wknd=isWknd(outDate);
-        const cellsDue=Math.max(0,(fr.capped||fr.cells_received||0)-(fr.out||0));
-        // Stage pills
-        let stg='',stgBg='',stgTxt='';
-        if(fr.out!=null){stg='Out ✓';stgBg='#d1fae5';stgTxt='#065f46';}
-        else if(fr.capped!=null||gCapDate(g)<=tdStr){stg='Capped';stgBg='#fef3c7';stgTxt='#92400e';}
-        else if(fr.cells_received>0||dayjs(tdStr).diff(dayjs(g.date),'day')>=2){stg='Larval';stgBg='#dbeafe';stgTxt='#1e40af';}
-        else{stg='Starting';stgBg='#d1fae5';stgTxt='#065f46';}
-        return`<div style="border:1.5px solid ${gc.border};border-radius:10px;overflow:hidden;margin-bottom:8px">
-          <div style="background:${gc.bg};padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="chip" style="background:${gc.border};color:${gc.text};font-weight:800">${gFinisherLabel(g)}</span>
-            <strong style="font-size:13px">${fmtF(g.date)}</strong>
-            <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${stgBg};color:${stgTxt};font-weight:700">${stg}</span>
-            <span style="margin-left:auto;font-size:11px;color:${wknd?'var(--red)':'var(--b2)'};font-weight:700">Out ${relDay(outDate)||dayN(outDate)} ${fmt(outDate)}${wknd?' 🏖':''}</span>
-          </div>
-          <div style="background:var(--wht);padding:10px 12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-            <div style="text-align:center"><div style="font-size:20px;font-weight:800">${gGrafted(g)||'—'}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Grafted</div></div>
-            ${fr.cells_received!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800">${fr.cells_received}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Started</div></div>`:''}
-            ${fr.capped!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800">${fr.capped}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Capped</div></div>`:''}
-            ${fr.out!=null?`<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:var(--g)">${fr.out}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Out</div></div>`:''}
-            ${cellsDue>0&&fr.out==null?`<div style="margin-left:auto;text-align:center"><div style="font-size:20px;font-weight:800;color:var(--g)">${cellsDue}</div><div style="font-size:9px;color:var(--b3);text-transform:uppercase">Cells due</div></div>`:''}
-            <button class="btn bp bx" style="margin-left:auto;font-size:11px" onclick="closePanel();openPanel('rec','${g.id}')">Record / update →</button>
-          </div>
-        </div>`;
-      }).join('')}
+      ${activeBatches.length?activeBatches.map(renderBatch).join(''):'<p class="tsm" style="color:var(--b3);margin-bottom:8px">No active batch.</p>'}
+      ${allPast.length?`<details style="margin-top:4px"><summary style="font-size:12px;color:var(--b3);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;padding:4px 0"><span>▸</span> Past batches (${allPast.length})</summary><div style="margin-top:8px;opacity:.8">${allPast.map(renderBatch).join('')}</div></details>`:''}
     </div>`;
   }
 
